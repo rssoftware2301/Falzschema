@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Falzschema – 16-Seiter Kreuzbruch</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three/three.module.min.js",
+          "three/addons/": "./vendor/three/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Falzschema</h1>
+        <p class="sub">16 Seiten · 3-Bruch-Kreuzbruch · Bogen 4 × 2 Seiten</p>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel controls" aria-label="Steuerung">
+        <section>
+          <h2>Ansicht des Bogens</h2>
+          <div class="segmented" role="group" aria-label="Bogenseite">
+            <button id="btn-front" class="active" aria-pressed="true">Vorderseite</button>
+            <button id="btn-back" aria-pressed="false">Rückseite</button>
+          </div>
+          <p class="hint">Die Rückseite wird wie beim Umschlagen gezeigt: Bogen um die senkrechte Achse gewendet.</p>
+        </section>
+
+        <section>
+          <h2>Falzanimation</h2>
+          <div class="buttons">
+            <button id="btn-reset" title="Bogen wieder flach legen">⏮ Zurück auf Anfang</button>
+            <button id="btn-prev" title="Einen Falz zurück">◀ Falz zurück</button>
+            <button id="btn-next" title="Nächsten Falz ausführen">Nächster Falz ▶</button>
+            <button id="btn-play" class="primary" title="Alle Falze nacheinander abspielen">▶ Alle Falze abspielen</button>
+          </div>
+          <label class="field">
+            <span>Fortschritt</span>
+            <input id="scrub" type="range" min="0" max="3" step="0.001" value="0" />
+          </label>
+          <label class="field">
+            <span>Geschwindigkeit</span>
+            <select id="speed">
+              <option value="0.5">langsam</option>
+              <option value="1" selected>normal</option>
+              <option value="2">schnell</option>
+            </select>
+          </label>
+        </section>
+
+        <section>
+          <h2>Falzschritte</h2>
+          <ol id="steps" class="steps"></ol>
+          <p id="status" class="status" aria-live="polite"></p>
+        </section>
+
+        <section>
+          <button id="btn-camera">Kamera zurücksetzen</button>
+          <p class="hint">3D-Ansicht mit der Maus drehen (linke Taste), verschieben (rechte Taste) und zoomen (Mausrad).</p>
+        </section>
+      </aside>
+
+      <section class="panel stage" aria-label="3D-Darstellung des Druckbogens">
+        <div id="viewport"></div>
+        <div class="legend">
+          <span><i class="swatch front"></i>Vorderseite (Schöndruck)</span>
+          <span><i class="swatch back"></i>Rückseite (Widerdruck)</span>
+          <span><i class="swatch fold"></i>nächster Falz</span>
+          <span><i class="swatch head"></i>Kopf der Seite</span>
+        </div>
+      </section>
+
+      <section class="panel schema" aria-label="Ausschuss-Schema">
+        <h2>Ausschuss (Seitenverteilung auf dem Bogen)</h2>
+        <div class="schema-grid">
+          <figure>
+            <svg id="schema-front" role="img" aria-label="Vorderseite des Bogens"></svg>
+            <figcaption>Vorderseite (Schöndruck)</figcaption>
+          </figure>
+          <figure>
+            <svg id="schema-back" role="img" aria-label="Rückseite des Bogens"></svg>
+            <figcaption>Rückseite (Widerdruck, umgeschlagen)</figcaption>
+          </figure>
+        </div>
+        <p class="hint">
+          Kopfstehende Seitenzahlen sind auf dem Bogen um 180° gedreht („Kopf an Kopf“). Die gestrichelten
+          Linien sind die Falzlinien mit der Nummer des Falzschritts.
+        </p>
+      </section>
+    </main>
+
+    <script type="module" src="src/app.js"></script>
+  </body>
+</html>

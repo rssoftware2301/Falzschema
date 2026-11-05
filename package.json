@@ -1,0 +1,12 @@
+{
+  "name": "falzschema",
+  "version": "1.0.0",
+  "description": "Darstellung und Animation des Falzschemas eines 16-seitigen Druckbogens (3-Bruch-Kreuzbruch)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "test": "node --test test/falzschema.test.mjs"
+  },
+  "license": "UNLICENSED"
+}
