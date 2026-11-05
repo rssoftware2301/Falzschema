@@ -16,6 +16,19 @@ Danach <http://localhost:8000> im Browser öffnen. Alternativ jeder andere
 statische Webserver im Projektordner. Es gibt keine Abhängigkeiten zum
 Installieren; Three.js liegt unter `vendor/three/`.
 
+## Weitergeben als Einzeldatei
+
+`dist/Falzschema.html` enthält das komplette Programm (Oberfläche, Code und
+Three.js) in einer Datei. Sie kann per E-Mail, USB-Stick o. Ä. weitergegeben
+und **per Doppelklick** geöffnet werden – ohne Webserver und ohne Internet.
+
+Nach Änderungen am Code die Datei neu erzeugen:
+
+```bash
+npm install
+npm run build
+```
+
 ## Funktionen
 
 - **Bogenansicht Vorder-/Rückseite** (Schöndruck/Widerdruck) mit Seitenzahlen,
@@ -82,4 +95,6 @@ Stetigkeit der Animation.
 - `src/falzschema.js` – Rechenkern (ohne Grafik, auch unter Node.js nutzbar)
 - `src/app.js` – 3D-Darstellung (Three.js), SVG-Schema und Bedienung
 - `test/` – Tests mit `node:test`
+- `scripts/build-single.mjs` – erzeugt die Einzeldatei `dist/Falzschema.html`
+- `dist/Falzschema.html` – fertige Einzeldatei zum Weitergeben
 - `vendor/three/` – Three.js r170 (MIT-Lizenz)
