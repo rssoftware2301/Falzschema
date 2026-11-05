@@ -38,6 +38,12 @@ npm run build
 - **Falzanimation**: alle Falze abspielen, einzeln vor/zurück, per Schieberegler
   frei durchfahren, Geschwindigkeit wählbar. Die Linie des nächsten Falzes ist
   rot markiert; die 3D-Ansicht lässt sich mit der Maus drehen und zoomen.
+- **Blättern im Endprodukt**: Nach dem 3. Falz kann vor- und zurückgeblättert
+  werden (Buttons, Pfeiltasten ← →, Pos1/Ende oder Klick auf die rechte bzw.
+  linke Seite). Das Produkt wird dabei als an Kopf und Vorderschnitt
+  beschnitten betrachtet; die Blätter drehen sich um den Bund. Angezeigt wird
+  die aufgeschlagene Doppelseite (z. B. „Seite 6 | 7“). Wird wieder aufgefalzt,
+  klappt das Produkt zuerst zu.
 - **Falzlinien im Schema** mit der Nummer des jeweiligen Falzschritts.
 
 ## Falzschema

@@ -209,6 +209,23 @@ button.primary:hover {
   color: #fff;
 }
 
+.book-pages {
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f6f8fa;
+  font-variant-numeric: tabular-nums;
+}
+.book-pages.disabled {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
 .status {
   font-weight: 600;
   margin: 10px 0 0;

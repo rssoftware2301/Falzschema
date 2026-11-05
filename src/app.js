@@ -5,6 +5,8 @@ import {
   computeScheme,
   sheetLayout,
   panelMatrixAt,
+  leafMatrixAt,
+  openPages,
   pageRotation,
   transformPoint,
   creases,
@@ -21,6 +23,7 @@ const THICKNESS = 1.2; // Papierstärke in der Darstellung (überzeichnet)
 const scheme = KREUZBRUCH_3_16;
 const model = computeScheme(scheme, { pageWidth: PAGE_W, pageHeight: PAGE_H, thickness: THICKNESS });
 const FOLDS = model.folds.length;
+const LEAVES = model.panels.length;
 const CREASES = creases(model);
 
 const COLORS = {
@@ -112,6 +115,7 @@ container.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1, 1, 5000);
 const DEFAULT_CAMERA = new THREE.Vector3(250, -230, 470);
+const READING_CAMERA = new THREE.Vector3(0, -260, 430); // Leseansicht beim Blättern
 camera.position.copy(DEFAULT_CAMERA);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -296,14 +300,22 @@ const state = {
   flipTarget: 0,
   center: new THREE.Vector3(),
   zoom: 1,
+  // Blättern: book = Anzahl umgeblätterter Blätter (0..LEAVES, stetig für die Animation)
+  book: 0,
+  bookTarget: 0,
+  cameraTarget: null, // laufende Kamerafahrt (Vector3) oder null
 };
 
 const ease = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 
-function applyPose(t) {
+function applyPose(t, book) {
   const step = Math.min(Math.floor(t), FOLDS);
   const progress = ease(t - step);
-  const current = model.panels.map((p, i) => panelMatrixAt(model, i, step, progress));
+  const current = model.panels.map((p, i) =>
+    step >= FOLDS && book > 0
+      ? leafMatrixAt(model, i, ease(Math.min(1, Math.max(0, book - p.layer))))
+      : panelMatrixAt(model, i, step, progress),
+  );
   current.forEach((m, i) => {
     tmpMatrix.fromArray(m);
     panelObjects[i].matrix.copy(tmpMatrix);
@@ -341,6 +353,7 @@ $('btn-prev').addEventListener('click', () => goTo(Math.ceil(state.target - 1e-6
 $('btn-reset').addEventListener('click', () => {
   goTo(0);
   state.t = 0;
+  closeBookNow();
 });
 $('btn-play').addEventListener('click', () => {
   if (state.playingAll) {
@@ -349,13 +362,17 @@ $('btn-play').addEventListener('click', () => {
     state.target = state.t;
     return;
   }
-  if (state.t >= FOLDS - 1e-6) state.t = 0;
+  if (state.t >= FOLDS - 1e-6) {
+    state.t = 0;
+    closeBookNow();
+  }
   state.target = FOLDS;
   state.playingAll = true;
 });
 $('scrub').addEventListener('input', (e) => {
   state.playingAll = false;
   state.t = state.target = Number(e.target.value);
+  closeBookNow();
 });
 $('speed').addEventListener('change', (e) => (state.speed = Number(e.target.value)));
 
@@ -370,8 +387,71 @@ $('btn-front').addEventListener('click', () => setSide('front'));
 $('btn-back').addEventListener('click', () => setSide('back'));
 
 $('btn-camera').addEventListener('click', () => {
-  camera.position.copy(DEFAULT_CAMERA);
+  state.cameraTarget = null;
+  camera.position.copy(isBrowsing() ? READING_CAMERA : DEFAULT_CAMERA);
   controls.target.set(0, 0, 0);
+});
+// Sobald der Benutzer die Kamera selbst bewegt, keine automatische Kamerafahrt mehr
+controls.addEventListener('start', () => (state.cameraTarget = null));
+
+// --- Blättern ---------------------------------------------------------------
+
+const isFolded = () => state.t >= FOLDS - 1e-6 && state.target >= FOLDS - 1e-6;
+const isBrowsing = () => isFolded() && (state.book > 1e-6 || state.bookTarget > 0);
+
+function closeBookNow() {
+  state.book = state.bookTarget = 0;
+}
+
+function turnTo(target) {
+  if (!isFolded()) return;
+  const k = Math.max(0, Math.min(LEAVES, target));
+  if (k > 0 && !isBrowsing()) {
+    // Beim Aufschlagen in die Leseansicht wechseln
+    setSide('front');
+    state.cameraTarget = READING_CAMERA.clone();
+    controls.target.set(0, 0, 0);
+  }
+  state.bookTarget = k;
+}
+const currentLeaf = () => Math.round(state.bookTarget);
+
+$('btn-page-next').addEventListener('click', () => turnTo(currentLeaf() + 1));
+$('btn-page-prev').addEventListener('click', () => turnTo(currentLeaf() - 1));
+$('btn-page-first').addEventListener('click', () => turnTo(0));
+$('btn-page-last').addEventListener('click', () => turnTo(LEAVES));
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest('input, select, textarea') || e.altKey || e.ctrlKey || e.metaKey) return;
+  const actions = {
+    ArrowRight: () => turnTo(currentLeaf() + 1),
+    ArrowLeft: () => turnTo(currentLeaf() - 1),
+    Home: () => turnTo(0),
+    End: () => turnTo(LEAVES),
+  };
+  if (actions[e.key] && isFolded()) {
+    e.preventDefault();
+    actions[e.key]();
+  }
+});
+
+// Klick auf das Produkt: rechts vom Bund = vorblättern, links = zurückblättern
+const raycaster = new THREE.Raycaster();
+const pointerDown = new THREE.Vector2();
+renderer.domElement.addEventListener('pointerdown', (e) => pointerDown.set(e.clientX, e.clientY));
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (!isFolded() || pointerDown.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) > 5) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  const ndc = new THREE.Vector2(
+    ((e.clientX - rect.left) / rect.width) * 2 - 1,
+    -((e.clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  raycaster.setFromCamera(ndc, camera);
+  const hit = raycaster.intersectObjects(panelObjects, true).find((h) => h.object.isMesh);
+  if (!hit) return;
+  const local = sheetGroup.worldToLocal(hit.point.clone());
+  const forward = (local.x - model.book.spineX) * (model.book.leavesSide === 'positive' ? 1 : -1) > 0;
+  turnTo(currentLeaf() + (forward ? 1 : -1));
 });
 
 function updateUi() {
@@ -385,6 +465,8 @@ function updateUi() {
   const moving = Math.abs(state.target - t) > 1e-6;
   let text;
   if (t <= 1e-6) text = 'Flacher Druckbogen – 16 Seiten auf 8 Feldern je Seite.';
+  else if (state.target < t && state.book > 1e-6) text = 'Produkt wird zugeklappt …';
+  else if (t >= FOLDS - 1e-6 && isBrowsing()) text = 'Blättern im Endprodukt (gedanklich an Kopf und Vorderschnitt beschnitten).';
   else if (t >= FOLDS - 1e-6) text = 'Fertig gefalzt: 8 Blätter = 16 Seiten, Seite 1 oben, Bund links, Kopf oben.';
   else if (moving) text = `${model.folds[Math.floor(t)].name} läuft …`;
   else text = `Angehalten in ${model.folds[Math.floor(t)].name}.`;
@@ -394,6 +476,26 @@ function updateUi() {
   $('btn-prev').disabled = state.target <= 1e-6;
   $('btn-next').disabled = state.target >= FOLDS - 1e-6;
   $('scrub').value = t;
+
+  // Blättern
+  const folded = isFolded();
+  const leaf = currentLeaf();
+  const pagesEl = $('book-pages');
+  if (folded) {
+    const { left, right } = openPages(model, leaf);
+    pagesEl.textContent =
+      left === null ? `Titelseite: Seite ${right}` : right === null ? `Rückseite: Seite ${left}` : `Seite ${left} | ${right}`;
+  } else {
+    pagesEl.textContent = 'erst nach dem 3. Falz';
+  }
+  pagesEl.classList.toggle('disabled', !folded);
+  $('btn-page-prev').disabled = !folded || leaf <= 0;
+  $('btn-page-first').disabled = !folded || leaf <= 0;
+  $('btn-page-next').disabled = !folded || leaf >= LEAVES;
+  $('btn-page-last').disabled = !folded || leaf >= LEAVES;
+  $('book-hint').textContent = folded
+    ? 'Auch mit den Pfeiltasten ← → oder per Klick auf die rechte bzw. linke Seite.'
+    : 'Zuerst alle Falze ausführen.';
 
   // Im Schema den nächsten bzw. laufenden Falz hervorheben
   const highlight = t < FOLDS ? Math.floor(t) : -1;
@@ -422,16 +524,30 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const FOLD_SECONDS = 1.8; // Dauer eines Falzes bei normaler Geschwindigkeit
 
-  // Fortschritt Richtung Ziel bewegen
+  const LEAF_SECONDS = 0.9; // Dauer eines Umblätterns
+
+  // Soll wieder aufgefalzt werden, zuerst das Produkt zuklappen
+  if (state.target < state.t - 1e-9 && state.book > 1e-6) state.bookTarget = 0;
+
+  // Blättern Richtung Ziel bewegen (bei großen Sprüngen schneller)
+  const bookDiff = state.bookTarget - state.book;
+  if (Math.abs(bookDiff) > 1e-6) {
+    const delta = ((dt * state.speed) / LEAF_SECONDS) * Math.max(1, Math.abs(bookDiff) / 2);
+    state.book = Math.abs(bookDiff) <= delta ? state.bookTarget : state.book + Math.sign(bookDiff) * delta;
+  }
+
+  // Falz-Fortschritt Richtung Ziel bewegen (erst wenn das Produkt zugeklappt ist)
   const diff = state.target - state.t;
-  if (Math.abs(diff) > 1e-6) {
+  if (state.book > 1e-6) {
+    // warten
+  } else if (Math.abs(diff) > 1e-6) {
     const delta = (dt * state.speed) / FOLD_SECONDS;
     state.t = Math.abs(diff) <= delta ? state.target : state.t + Math.sign(diff) * delta;
   } else if (state.playingAll) {
     state.playingAll = false;
   }
 
-  const current = applyPose(state.t);
+  const current = applyPose(state.t, state.book);
   updateFoldLines(state.t);
 
   // Bogen in der Bildmitte halten (sanft nachführen)
@@ -452,6 +568,12 @@ function frame() {
   if (Math.abs(state.flipTarget - state.flip) < 1e-4) state.flip = state.flipTarget;
   flipGroup.rotation.y = state.flip;
 
+  // Automatische Kamerafahrt (z. B. in die Leseansicht)
+  if (state.cameraTarget) {
+    camera.position.lerp(state.cameraTarget, 1 - Math.exp(-dt * 3));
+    if (camera.position.distanceTo(state.cameraTarget) < 0.5) state.cameraTarget = null;
+  }
+
   controls.update();
   updateUi();
   renderer.render(scene, camera);
@@ -461,4 +583,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Für Tests / Debugging
-window.falzschema = { model, state, goTo, setSide };
+window.falzschema = { model, state, goTo, setSide, turnTo };

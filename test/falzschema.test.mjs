@@ -8,6 +8,8 @@ import {
   transformPoint,
   transformVector,
   creases,
+  leafMatrixAt,
+  openPages,
 } from '../src/falzschema.js';
 
 const fmt = (grid) => grid.map((row) => row.map((c) => `${c.page}${c.rotation ? 'v' : ''}`).join(' '));
@@ -70,4 +72,31 @@ test('Falzlinien auf dem flachen Bogen', () => {
     [-70, 70],
   );
   for (const s of f3) assert.deepEqual([s[0][1], s[1][1]], [-99, 99]);
+});
+
+test('Blättern: umgeblätterte Blätter liegen links vom Bund, richtige Seite oben', () => {
+  const c = computeScheme(KREUZBRUCH_3_16);
+  const { spineX } = c.book;
+  // Nach dem Umblättern von k Blättern: linke Seite oben = 2k, rechte Seite oben = 2k+1
+  for (let k = 1; k < 8; k++) {
+    const leftLeaf = c.panels[c.layers[k - 1]];
+    const rightLeaf = c.panels[c.layers[k]];
+    const mL = leafMatrixAt(c, leftLeaf.id, 1);
+    const mR = leafMatrixAt(c, rightLeaf.id, 0);
+    assert.ok(transformPoint(mL, [0, 0, 0])[0] < spineX);
+    assert.ok(transformPoint(mR, [0, 0, 0])[0] > spineX);
+    const faceUp = (m, p) => (transformVector(m, [0, 0, 1])[2] > 0 ? p.front.page : p.back.page);
+    assert.equal(faceUp(mL, leftLeaf), 2 * k);
+    assert.equal(faceUp(mR, rightLeaf), 2 * k + 1);
+    assert.deepEqual(openPages(c, k), { left: 2 * k, right: 2 * k + 1 });
+    // Kopf bleibt oben (Drehung um die senkrechte Achse)
+    for (const [m, p] of [[mL, leftLeaf], [mR, rightLeaf]]) {
+      assert.ok(transformVector(m, [...p.front.up, 0])[1] > 0.99);
+    }
+  }
+  // Oberstes umgeblättertes Blatt liegt auch links oben auf dem Stapel
+  const z = (k) => transformPoint(leafMatrixAt(c, c.layers[k], 1), [0, 0, 0])[2];
+  for (let k = 1; k < 8; k++) assert.ok(z(k) > z(k - 1));
+  assert.deepEqual(openPages(c, 0), { left: null, right: 1 });
+  assert.deepEqual(openPages(c, 8), { left: 16, right: null });
 });

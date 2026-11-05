@@ -241,9 +241,21 @@ export function computeScheme(scheme, opts = {}) {
     result[i].back = { page: frontUp ? downPage : upPage, up: [up[0], up[1]] };
   });
 
+  // Blättern im fertigen Produkt (gedanklich beschnitten): Jedes Feld ist ein Blatt,
+  // das um den Bund gewendet wird. Drehachse senkrecht am Bund, auf halber Stapelhöhe,
+  // damit die gewendeten Blätter auf der anderen Seite in umgekehrter Folge liegen.
+  const zs = finalCenters.map((c) => c[2]);
+  const book = {
+    spineX: lastFold.linePos,
+    axisZ: (Math.min(...zs) + Math.max(...zs)) / 2,
+    // Blätter liegen auf der Seite des Bundes, die nicht der Rand ist
+    leavesSide: spineLeftFromTop ? 'positive' : 'negative',
+  };
+
   return {
     scheme,
     viewSign,
+    book,
     pageWidth,
     pageHeight,
     thickness,
@@ -299,6 +311,34 @@ export function panelMatrixAt(computed, panelIndex, step, progress) {
   const fold = computed.folds[step];
   if (!fold.moving[panelIndex] || progress <= 0) return base;
   return multiply(fold.matrixAt(Math.min(progress, 1)), base);
+}
+
+/**
+ * Matrix eines Blattes beim Blättern im fertigen Produkt.
+ * @param {number} turned  0 = Blatt liegt rechts vom Bund, 1 = ganz umgeblättert
+ */
+export function leafMatrixAt(computed, panelIndex, turned) {
+  const base = computed.matrices[computed.folds.length][panelIndex];
+  if (turned <= 0) return base;
+  const { spineX, axisZ, leavesSide } = computed.book;
+  // Blatt hebt sich zum Betrachter hin und legt sich auf die andere Seite des Bundes.
+  const sign = (leavesSide === 'positive' ? -1 : 1) * computed.viewSign;
+  const angle = sign * Math.PI * Math.min(turned, 1);
+  const turn = multiply(
+    translation(spineX, 0, axisZ),
+    multiply(rotation('y', angle), translation(-spineX, 0, -axisZ)),
+  );
+  return multiply(turn, base);
+}
+
+/**
+ * Welche Seiten sind sichtbar, wenn `turned` Blätter umgeblättert sind?
+ * Liefert { left, right } (null, wenn auf der Seite nichts liegt).
+ */
+export function openPages(computed, turned) {
+  const leaves = computed.panels.length;
+  const k = Math.max(0, Math.min(leaves, Math.round(turned)));
+  return { left: k > 0 ? 2 * k : null, right: k < leaves ? 2 * k + 1 : null };
 }
 
 /**
