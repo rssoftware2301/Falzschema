@@ -226,6 +226,25 @@ button.primary:hover {
   font-size: 0.95rem;
 }
 
+.hint.top {
+  margin: 0 0 10px;
+}
+.fold-opts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+.fold-opts select {
+  padding: 4px 6px;
+  font-size: 0.85rem;
+  min-width: 0;
+}
+#btn-fold-default {
+  width: 100%;
+  font-size: 0.85rem;
+}
+
 .status {
   font-weight: 600;
   margin: 10px 0 0;

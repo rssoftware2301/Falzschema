@@ -100,3 +100,39 @@ test('Blättern: umgeblätterte Blätter liegen links vom Bund, richtige Seite o
   assert.deepEqual(openPages(c, 0), { left: null, right: 1 });
   assert.deepEqual(openPages(c, 8), { left: 16, right: null });
 });
+
+test('alle 32 Kombinationen von Falzrichtungen ergeben eine gültige Paginierung', async () => {
+  const { kreuzbruch16 } = await import('../src/falzschema.js');
+  const sides = ['positive', 'negative'];
+  const dirs = ['up', 'down'];
+  const layouts = new Set();
+  for (const m1 of sides) for (const m2 of sides) for (const m3 of sides)
+    for (const d1 of dirs) for (const d2 of dirs) for (const d3 of dirs) {
+      const settings = [
+        { moving: m1, direction: d1 },
+        { moving: m2, direction: d2 },
+        { moving: m3, direction: d3 },
+      ];
+      const c = computeScheme(kreuzbruch16(settings));
+      const pages = c.panels.flatMap((p) => [p.front.page, p.back.page]).sort((a, b) => a - b);
+      assert.deepEqual(pages, Array.from({ length: 16 }, (_, i) => i + 1));
+      layouts.add(fmt(sheetLayout(c, 'front')).join('/'));
+
+      // Blättern: nach k Blättern liegt links Seite 2k, rechts 2k+1 – vom Leser aus gesehen
+      const v = c.viewSign;
+      const faceUp = (m, p) => (v * transformVector(m, [0, 0, 1])[2] > 0 ? p.front.page : p.back.page);
+      for (let k = 1; k < 8; k++) {
+        const leftLeaf = c.panels[c.layers[k - 1]];
+        const rightLeaf = c.panels[c.layers[k]];
+        const mL = leafMatrixAt(c, leftLeaf.id, 1);
+        const mR = leafMatrixAt(c, rightLeaf.id, 0);
+        assert.equal(faceUp(mL, leftLeaf), 2 * k);
+        assert.equal(faceUp(mR, rightLeaf), 2 * k + 1);
+        // Leser blickt von v·z: "links" ist bei v = -1 die +x-Seite
+        const xL = v * transformPoint(mL, [0, 0, 0])[0];
+        const xR = v * transformPoint(mR, [0, 0, 0])[0];
+        assert.ok(xL < xR);
+      }
+    }
+  assert.ok(layouts.size > 1);
+});

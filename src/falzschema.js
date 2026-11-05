@@ -83,46 +83,65 @@ const round = (v) => Math.round(v * 1e6) / 1e6;
  * 16-Seiter, 3-Bruch-Kreuzbruch.
  *
  * Bogen: 4 Felder nebeneinander, 2 Felder übereinander, Blick auf die
- * Vorderseite (Schöndruck). Alle Falze klappen vom Betrachter weg nach hinten,
- * die Vorderseite bleibt also außen – Seite 1 liegt am Ende obenauf.
- *   1. Falz: vertikal in der Bogenmitte – die linke Hälfte wird nach hinten
- *            hinter die rechte Hälfte geklappt (Bogen halbiert).
- *   2. Falz: horizontal, rechtwinklig zum 1. Falz – die obere Hälfte wird
- *            nach hinten geklappt. Dieser Falz liegt im Endprodukt am Kopf.
- *   3. Falz: vertikal, rechtwinklig zum 2. Falz – die linke Hälfte wird
- *            nach hinten geklappt. Dieser Falz bildet den Bund (Rücken).
+ * Vorderseite (Schöndruck).
+ *   1. Falz: vertikal in der Bogenmitte (Bogen wird halbiert)
+ *   2. Falz: horizontal, rechtwinklig zum 1. Falz
+ *   3. Falz: vertikal, rechtwinklig zum 2. Falz – bildet den Bund (Rücken)
+ *
+ * Für jeden Falz ist einstellbar, welche Hälfte bewegt wird
+ * (moving: 'positive' = rechts bzw. oben, 'negative' = links bzw. unten) und
+ * in welche Richtung sie klappt (direction: 'down' = nach hinten, vom
+ * Betrachter weg; 'up' = nach vorne, zum Betrachter hin). Die Richtungen
+ * beziehen sich immer auf den Blick auf die Vorderseite des Bogens.
+ *
+ * Standard: alle Falze nach hinten, linke / obere / linke Hälfte bewegt –
+ * die Vorderseite bleibt außen, Seite 1 liegt am Ende obenauf.
  */
-export const KREUZBRUCH_3_16 = {
-  id: 'kreuzbruch-3-16',
-  name: '16 Seiten, 3-Bruch-Kreuzbruch',
-  cols: 4,
-  rows: 2,
-  folds: [
-    {
-      name: '1. Falz',
-      orientation: 'vertical',
-      moving: 'negative',
-      direction: 'down',
-      label: 'vertikal in der Bogenmitte – linke Hälfte nach hinten',
-    },
-    {
-      name: '2. Falz',
-      orientation: 'horizontal',
-      moving: 'positive',
-      direction: 'down',
-      label: 'horizontal, rechtwinklig zum 1. Falz – obere Hälfte nach hinten',
-    },
-    {
-      name: '3. Falz',
-      orientation: 'vertical',
-      moving: 'negative',
-      direction: 'down',
-      label: 'vertikal, rechtwinklig zum 2. Falz – linke Hälfte nach hinten (Bund)',
-    },
-  ],
-  // Lage des fertigen Produkts: Bund links, Kopf oben.
-  reading: { spine: 'left', head: 'top' },
-};
+export const DEFAULT_FOLD_SETTINGS = Object.freeze([
+  Object.freeze({ moving: 'negative', direction: 'down' }),
+  Object.freeze({ moving: 'positive', direction: 'down' }),
+  Object.freeze({ moving: 'negative', direction: 'down' }),
+]);
+
+const FOLD_BASE = [
+  { name: '1. Falz', orientation: 'vertical', where: 'vertikal in der Bogenmitte' },
+  { name: '2. Falz', orientation: 'horizontal', where: 'horizontal, rechtwinklig zum 1. Falz' },
+  { name: '3. Falz', orientation: 'vertical', where: 'vertikal, rechtwinklig zum 2. Falz (Bund)' },
+];
+
+/** Name der bewegten Hälfte, z. B. "linke Hälfte". */
+export function halfName(orientation, moving) {
+  if (orientation === 'vertical') return moving === 'positive' ? 'rechte Hälfte' : 'linke Hälfte';
+  return moving === 'positive' ? 'obere Hälfte' : 'untere Hälfte';
+}
+
+export function directionName(direction) {
+  return direction === 'up' ? 'nach vorne' : 'nach hinten';
+}
+
+/** Erzeugt das Schema "16 Seiten, 3-Bruch-Kreuzbruch" mit den gewählten Falzrichtungen. */
+export function kreuzbruch16(settings = DEFAULT_FOLD_SETTINGS) {
+  return {
+    id: 'kreuzbruch-3-16',
+    name: '16 Seiten, 3-Bruch-Kreuzbruch',
+    cols: 4,
+    rows: 2,
+    folds: FOLD_BASE.map((base, k) => {
+      const { moving, direction } = { ...DEFAULT_FOLD_SETTINGS[k], ...(settings[k] || {}) };
+      return {
+        name: base.name,
+        orientation: base.orientation,
+        moving,
+        direction,
+        label: `${base.where} – ${halfName(base.orientation, moving)} ${directionName(direction)}`,
+      };
+    }),
+    // Lage des fertigen Produkts: Bund links, Kopf oben.
+    reading: { spine: 'left', head: 'top' },
+  };
+}
+
+export const KREUZBRUCH_3_16 = kreuzbruch16();
 
 // ---------------------------------------------------------------------------
 // Berechnung

@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/OrbitControls.js';
 import {
-  KREUZBRUCH_3_16,
+  DEFAULT_FOLD_SETTINGS,
+  kreuzbruch16,
+  halfName,
+  directionName,
   computeScheme,
   sheetLayout,
   panelMatrixAt,
@@ -20,11 +23,21 @@ const PAGE_W = 70; // Endformat (Verhältnis ca. DIN A)
 const PAGE_H = 99;
 const THICKNESS = 1.2; // Papierstärke in der Darstellung (überzeichnet)
 
-const scheme = KREUZBRUCH_3_16;
-const model = computeScheme(scheme, { pageWidth: PAGE_W, pageHeight: PAGE_H, thickness: THICKNESS });
+// Gewählte Falzrichtungen (je Falz: bewegte Hälfte und Richtung)
+let foldSettings = DEFAULT_FOLD_SETTINGS.map((f) => ({ ...f }));
+let scheme;
+let model;
+let CREASES;
+
+function computeModel() {
+  scheme = kreuzbruch16(foldSettings);
+  model = computeScheme(scheme, { pageWidth: PAGE_W, pageHeight: PAGE_H, thickness: THICKNESS });
+  CREASES = creases(model);
+}
+computeModel();
+
 const FOLDS = model.folds.length;
 const LEAVES = model.panels.length;
-const CREASES = creases(model);
 
 const COLORS = {
   front: '#ffffff',
@@ -194,7 +207,27 @@ const edges = new THREE.EdgesGeometry(plane);
 const edgeMaterial = new THREE.LineBasicMaterial({ color: 0x6b7684 });
 const FACE_OFFSET = THICKNESS * 0.12;
 
-const panelObjects = model.panels.map((p) => {
+let panelObjects = [];
+
+function disposePanels() {
+  for (const g of panelObjects) {
+    for (const child of g.children) {
+      if (child.isMesh) {
+        child.material.map?.dispose();
+        child.material.dispose();
+      }
+    }
+    sheetGroup.remove(g);
+  }
+  panelObjects = [];
+}
+
+function buildPanels() {
+  disposePanels();
+  panelObjects = model.panels.map(createPanel);
+}
+
+function createPanel(p) {
   const g = new THREE.Group();
   g.matrixAutoUpdate = false;
 
@@ -225,7 +258,8 @@ const panelObjects = model.panels.map((p) => {
   g.add(front, back, outline);
   sheetGroup.add(g);
   return g;
-});
+}
+buildPanels();
 
 // Anzeige der Falzlinie des nächsten / laufenden Falzes (auf beiden Bogenseiten)
 const foldLineMaterial = new THREE.MeshBasicMaterial({
@@ -335,12 +369,59 @@ function centerOf(matrices) {
 
 const $ = (id) => document.getElementById(id);
 const stepsEl = $('steps');
-model.folds.forEach((fold, k) => {
-  const li = document.createElement('li');
-  li.innerHTML = `<strong>${fold.name}</strong><span>${fold.label}</span>`;
-  li.title = `Bis einschließlich ${fold.name} falzen`;
-  li.addEventListener('click', () => goTo(k + 1));
-  stepsEl.appendChild(li);
+
+function optionsHtml(options, selected) {
+  return options
+    .map(([value, text]) => `<option value="${value}"${value === selected ? ' selected' : ''}>${text}</option>`)
+    .join('');
+}
+
+function renderSteps() {
+  stepsEl.replaceChildren();
+  // scheme.folds: Einstellungen (model.folds[k].moving ist dagegen die Liste der bewegten Felder)
+  scheme.folds.forEach((fold, k) => {
+    const li = document.createElement('li');
+    li.title = `Bis einschließlich ${fold.name} falzen`;
+    const halves = ['negative', 'positive'].map((m) => [m, halfName(fold.orientation, m)]);
+    const dirs = ['down', 'up'].map((d) => [d, directionName(d)]);
+    li.innerHTML = `<strong>${fold.name}</strong><span>${fold.label}</span>
+      <div class="fold-opts">
+        <select data-field="moving" aria-label="${fold.name}: bewegte Hälfte">${optionsHtml(halves, fold.moving)}</select>
+        <select data-field="direction" aria-label="${fold.name}: Richtung">${optionsHtml(dirs, fold.direction)}</select>
+      </div>`;
+    li.addEventListener('click', (e) => {
+      if (e.target.closest('.fold-opts')) return;
+      goTo(k + 1);
+    });
+    li.querySelectorAll('select').forEach((sel) =>
+      sel.addEventListener('change', () => {
+        foldSettings[k] = { ...foldSettings[k], [sel.dataset.field]: sel.value };
+        applyFoldSettings();
+      }),
+    );
+    stepsEl.appendChild(li);
+  });
+}
+
+/** Schema mit den aktuellen Falzrichtungen neu berechnen und alles neu darstellen. */
+function applyFoldSettings() {
+  closeBookNow();
+  computeModel();
+  buildPanels();
+  renderSchema(schemaFront, 'front');
+  renderSchema(schemaBack, 'back');
+  renderSteps();
+  const isDefault = foldSettings.every(
+    (f, k) => f.moving === DEFAULT_FOLD_SETTINGS[k].moving && f.direction === DEFAULT_FOLD_SETTINGS[k].direction,
+  );
+  $('btn-fold-default').disabled = isDefault;
+}
+
+renderSteps();
+
+$('btn-fold-default').addEventListener('click', () => {
+  foldSettings = DEFAULT_FOLD_SETTINGS.map((f) => ({ ...f }));
+  applyFoldSettings();
 });
 
 function goTo(target) {
@@ -407,8 +488,8 @@ function turnTo(target) {
   if (!isFolded()) return;
   const k = Math.max(0, Math.min(LEAVES, target));
   if (k > 0 && !isBrowsing()) {
-    // Beim Aufschlagen in die Leseansicht wechseln
-    setSide('front');
+    // Beim Aufschlagen in die Leseansicht wechseln (Seite 1 zum Betrachter)
+    setSide(model.viewSign > 0 ? 'front' : 'back');
     state.cameraTarget = READING_CAMERA.clone();
     controls.target.set(0, 0, 0);
   }
@@ -467,7 +548,11 @@ function updateUi() {
   if (t <= 1e-6) text = 'Flacher Druckbogen – 16 Seiten auf 8 Feldern je Seite.';
   else if (state.target < t && state.book > 1e-6) text = 'Produkt wird zugeklappt …';
   else if (t >= FOLDS - 1e-6 && isBrowsing()) text = 'Blättern im Endprodukt (gedanklich an Kopf und Vorderschnitt beschnitten).';
-  else if (t >= FOLDS - 1e-6) text = 'Fertig gefalzt: 8 Blätter = 16 Seiten, Seite 1 oben, Bund links, Kopf oben.';
+  else if (t >= FOLDS - 1e-6)
+    text =
+      model.viewSign > 0
+        ? 'Fertig gefalzt: 8 Blätter = 16 Seiten. Seite 1 liegt vorne oben, Bund links, Kopf oben.'
+        : 'Fertig gefalzt: 8 Blätter = 16 Seiten. Seite 1 liegt hinten – Ansicht „Rückseite“ zeigt sie mit Bund links.';
   else if (moving) text = `${model.folds[Math.floor(t)].name} läuft …`;
   else text = `Angehalten in ${model.folds[Math.floor(t)].name}.`;
   $('status').textContent = text;
@@ -583,4 +668,16 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Für Tests / Debugging
-window.falzschema = { model, state, goTo, setSide, turnTo };
+window.falzschema = {
+  get model() {
+    return model;
+  },
+  state,
+  goTo,
+  setSide,
+  turnTo,
+  setFold(k, settings) {
+    foldSettings[k] = { ...foldSettings[k], ...settings };
+    applyFoldSettings();
+  },
+};

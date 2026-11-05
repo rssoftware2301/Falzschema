@@ -38,6 +38,11 @@ npm run build
 - **Falzanimation**: alle Falze abspielen, einzeln vor/zurück, per Schieberegler
   frei durchfahren, Geschwindigkeit wählbar. Die Linie des nächsten Falzes ist
   rot markiert; die 3D-Ansicht lässt sich mit der Maus drehen und zoomen.
+- **Falzrichtung je Falz wählbar**: Bei jedem Falzschritt lässt sich einstellen,
+  welche Hälfte geklappt wird (links/rechts bzw. oben/unten) und ob sie nach
+  vorne (zum Betrachter) oder nach hinten klappt – bezogen auf den Blick auf
+  die Vorderseite. Ausschuss, 3D-Bogen und Blättern werden sofort neu
+  berechnet; „Standard-Falzrichtungen wiederherstellen“ setzt zurück.
 - **Blättern im Endprodukt**: Nach dem 3. Falz kann vor- und zurückgeblättert
   werden (Buttons, Pfeiltasten ← →, Pos1/Ende oder Klick auf die rechte bzw.
   linke Seite). Das Produkt wird dabei als an Kopf und Vorderschnitt
@@ -46,10 +51,10 @@ npm run build
   klappt das Produkt zuerst zu.
 - **Falzlinien im Schema** mit der Nummer des jeweiligen Falzschritts.
 
-## Falzschema
+## Falzschema (Standard-Einstellung)
 
 Blick auf die Vorderseite; alle Falze klappen nach hinten, die Vorderseite
-bleibt außen:
+bleibt außen. Andere Falzrichtungen ergeben einen anderen Ausschuss:
 
 1. **Falz** – vertikal in der Bogenmitte, linke Hälfte nach hinten (Bogen halbiert)
 2. **Falz** – horizontal, rechtwinklig zum 1. Falz, obere Hälfte nach hinten (Kopf)
