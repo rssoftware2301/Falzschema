@@ -1,4 +1,4 @@
-# Falzschema – 16-Seiter, 3-Bruch-Kreuzbruch
+# Falzschema – Ausschießen, Falzen und Zusammentragen
 
 Grafikprogramm (Browser), das einen Druckbogen mit 16 Endformatseiten
 (8 Blätter mit Vorder- und Rückseite, angeordnet 4 × 2) als Ausschuss darstellt
@@ -31,6 +31,28 @@ npm run build
 
 ## Funktionen
 
+- **Produkt wählen**: Seitenumfang 16, 32, 48, 64, 80, 96, 112 oder 128 Seiten
+  (= 1 bis 8 Druckbogen à 16 Seiten, 3-Bruch-Kreuzbruch) und Bindeart
+  **Sammelheftung** oder **Klebebindung**; bei Sammelheftung zusätzlich die
+  Papierstärke für die Verdrängung.
+- **Ausschuss je Bogen**: Jeder Bogen wird mit seinen Seitenzahlen im Gesamtprodukt
+  paginiert und angezeigt (3D und Schema). Die Bogenübersicht listet je Bogen
+  Seiten, Lage im Produkt und Verdrängung.
+  - Klebebindung: Bogen nacheinander – Bogen 1 = S. 1–16, Bogen 2 = S. 17–32 …
+  - Sammelheftung: Bogen ineinandergesteckt – bei 128 Seiten trägt Bogen 1 die
+    Seiten 1–8 und 121–128, der innerste Bogen 8 die Seiten 57–72.
+- **Verdrängung (Sammelheftung)**: je Bogen = Anzahl umschließender Bogen ×
+  4 Blatt × Papierstärke (bei 0,10 mm: 0,4 mm je Bogen, innerster Bogen von 8
+  = 2,8 mm). Der Seiteninhalt wird im Ausschuss um diesen Betrag zum Bund
+  verschoben (Darstellung 4-fach überhöht, Satzspiegel gestrichelt, Bund violett).
+- **Zusammentragen & Endverarbeitung** (Ansicht „Endprodukt“): Animation, wie
+  die gefalzten Bogen zusammenkommen:
+  - Sammelheftung: Bogen werden aufgeschlagen und ineinandergesteckt (innerster
+    zuerst), dann wird geschlossen – die inneren Bogen stehen am Vorderschnitt
+    über –, geheftet (Drahtklammern) und der Überstand abgeschnitten.
+  - Klebebindung: Bogen werden aufeinandergelegt (Bogen 1 oben) und am Rücken
+    verklebt.
+  Danach kann durch das ganze Exemplar geblättert werden.
 - **Bogenansicht Vorder-/Rückseite** (Schöndruck/Widerdruck) mit Seitenzahlen,
   Kopfmarke und Kopf-an-Kopf-Stellung der oberen Reihe – sowohl im 3D-Bild als
   auch im 2D-Ausschuss-Schema. Die Rückseite wird umgeschlagen gezeigt (Bogen
@@ -38,12 +60,12 @@ npm run build
 - **Falzanimation**: alle Falze abspielen, einzeln vor/zurück, per Schieberegler
   frei durchfahren, Geschwindigkeit wählbar. Die Linie des nächsten Falzes ist
   rot markiert; die 3D-Ansicht lässt sich mit der Maus drehen und zoomen.
-- **Falzrichtung je Falz wählbar**: Bei jedem Falzschritt lässt sich einstellen,
+- **Falzrichtung je Falz wählbar** (gilt für alle Bogen): Bei jedem Falzschritt lässt sich einstellen,
   welche Hälfte geklappt wird (links/rechts bzw. oben/unten) und ob sie nach
   vorne (zum Betrachter) oder nach hinten klappt – bezogen auf den Blick auf
   die Vorderseite. Ausschuss, 3D-Bogen und Blättern werden sofort neu
   berechnet; „Standard-Falzrichtungen wiederherstellen“ setzt zurück.
-- **Blättern im Endprodukt**: Nach dem 3. Falz kann vor- und zurückgeblättert
+- **Blättern** im einzelnen Bogen (nach dem 3. Falz) und im Endprodukt (nach dem Zusammentragen): vor- und zurückblättern
   werden (Buttons, Pfeiltasten ← →, Pos1/Ende oder Klick auf die rechte bzw.
   linke Seite). Das Produkt wird dabei als an Kopf und Vorderschnitt
   beschnitten betrachtet; die Blätter drehen sich um den Bund. Angezeigt wird

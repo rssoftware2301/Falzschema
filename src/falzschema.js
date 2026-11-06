@@ -338,24 +338,31 @@ export function panelMatrixAt(computed, panelIndex, step, progress) {
  */
 export function leafMatrixAt(computed, panelIndex, turned) {
   const base = computed.matrices[computed.folds.length][panelIndex];
-  if (turned <= 0) return base;
-  const { spineX, axisZ, leavesSide } = computed.book;
-  // Blatt hebt sich zum Betrachter hin und legt sich auf die andere Seite des Bundes.
+  return turnAboutSpine(computed, base, turned, computed.book.axisZ);
+}
+
+/**
+ * Dreht eine Blatt-Matrix um den Bund (senkrechte Achse bei x = spineX, Höhe axisZ).
+ * turned = 0: liegt auf der Blattseite, 1: ganz umgeblättert. Das Blatt hebt sich
+ * dabei zum Betrachter hin.
+ */
+export function turnAboutSpine(computed, matrix, turned, axisZ) {
+  if (turned === 0) return matrix;
+  const { spineX, leavesSide } = computed.book;
   const sign = (leavesSide === 'positive' ? -1 : 1) * computed.viewSign;
   const angle = sign * Math.PI * Math.min(turned, 1);
   const turn = multiply(
     translation(spineX, 0, axisZ),
     multiply(rotation('y', angle), translation(-spineX, 0, -axisZ)),
   );
-  return multiply(turn, base);
+  return multiply(turn, matrix);
 }
 
 /**
  * Welche Seiten sind sichtbar, wenn `turned` Blätter umgeblättert sind?
  * Liefert { left, right } (null, wenn auf der Seite nichts liegt).
  */
-export function openPages(computed, turned) {
-  const leaves = computed.panels.length;
+export function openPages(computed, turned, leaves = computed.panels.length) {
   const k = Math.max(0, Math.min(leaves, Math.round(turned)));
   return { left: k > 0 ? 2 * k : null, right: k < leaves ? 2 * k + 1 : null };
 }
@@ -417,4 +424,135 @@ function mergeSegments(segs) {
     flush();
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Produktion: mehrere Bogen, Sammelheftung / Klebebindung
+// ---------------------------------------------------------------------------
+
+/** Wählbare Seitenumfänge (Vielfache von 16 = 1 bis 8 Druckbogen). */
+export const PAGE_COUNTS = [16, 32, 48, 64, 80, 96, 112, 128];
+
+export const BINDINGS = {
+  saddle: 'Sammelheftung',
+  perfect: 'Klebebindung',
+};
+
+/**
+ * Verteilt die Seiten eines Produkts auf mehrere gleich gefalzte Druckbogen.
+ *
+ * Jeder Bogen ergibt nach dem Falzen einen Stapel von 8 Blättern (Lagen 0..7).
+ * Im fertigen Produkt erhält jedes Blatt eine globale Position g (0 = vorne):
+ *
+ *  - Klebebindung: Die Bogen werden nacheinander zusammengetragen,
+ *    Bogen s belegt die Blätter 8s … 8s+7 (Seiten 16s+1 … 16s+16).
+ *  - Sammelheftung: Die Bogen werden ineinandergesteckt (Bogen 1 außen).
+ *    Die vordere Hälfte von Bogen s (Lagen 0..3) liegt bei 4s+L, die hintere
+ *    Hälfte (Lagen 4..7) bei Blattzahl - 4s - 8 + L. Bogen 1 trägt also bei
+ *    128 Seiten die Seiten 1–8 und 121–128.
+ *
+ * Die Seitenzahl ergibt sich wie beim einzelnen Bogen aus der Position:
+ * Vorderseite des Blattes g = 2g+1, Rückseite = 2g+2.
+ *
+ * Verdrängung (nur Sammelheftung): Innere Bogen werden von den äußeren
+ * umschlossen und stehen am Vorderschnitt über. Je Bogen wird angesetzt:
+ * Anzahl umschließender Bogen × 4 Blatt (eine Seite des Rückens) × Papierstärke.
+ * Um diesen Betrag wird der Seiteninhalt beim Ausschießen zum Bund hin
+ * verschoben, damit die Ränder nach dem Beschnitt gleich sind.
+ *
+ * @param {object} model   Ergebnis von computeScheme
+ * @param {object} opts
+ * @param {number} opts.pages     Seitenumfang (Vielfaches der Seiten je Bogen)
+ * @param {'saddle'|'perfect'} opts.binding
+ * @param {number} opts.caliper   Papierstärke in mm
+ */
+export function computeProduction(model, { pages = 16, binding = 'perfect', caliper = 0.1 } = {}) {
+  const leavesPerSheet = model.panels.length;
+  const pagesPerSheet = 2 * leavesPerSheet;
+  if (!Number.isInteger(pages / pagesPerSheet) || pages <= 0) {
+    throw new Error(`Seitenumfang muss ein Vielfaches von ${pagesPerSheet} sein: ${pages}`);
+  }
+  if (!BINDINGS[binding]) throw new Error(`Unbekannte Bindeart: ${binding}`);
+  const n = pages / pagesPerSheet;
+  const half = leavesPerSheet / 2;
+  const totalLeaves = n * leavesPerSheet;
+
+  const globalLeaf = (s, L) => {
+    if (binding === 'perfect') return leavesPerSheet * s + L;
+    return L < half ? half * s + L : totalLeaves - half * s - leavesPerSheet + L;
+  };
+
+  const leaves = new Array(totalLeaves);
+  const sheets = [];
+  for (let s = 0; s < n; s++) {
+    const panels = model.panels.map((p) => {
+      const g = globalLeaf(s, p.layer);
+      const offset = 2 * (g - p.layer);
+      leaves[g] = { g, sheet: s, panel: p.id, layer: p.layer };
+      return {
+        ...p,
+        leaf: g,
+        front: { ...p.front, page: p.front.page + offset },
+        back: { ...p.back, page: p.back.page + offset },
+      };
+    });
+    const sheetPages = panels.flatMap((p) => [p.front.page, p.back.page]).sort((a, b) => a - b);
+    sheets.push({
+      index: s,
+      panels,
+      pages: sheetPages,
+      pageRanges: pageRanges(sheetPages),
+      creep: binding === 'saddle' ? round(s * half * caliper) : 0,
+    });
+  }
+
+  return { n, pages, binding, caliper, leavesPerSheet, totalLeaves, sheets, leaves };
+}
+
+/** Fasst Seitenzahlen zu Bereichen zusammen: [1,2,3,7,8] -> "1–3, 7–8". */
+export function pageRanges(pages) {
+  const sorted = [...pages].sort((a, b) => a - b);
+  const out = [];
+  let start = sorted[0];
+  let prev = start;
+  for (const p of sorted.slice(1).concat([Infinity])) {
+    if (p === prev + 1) {
+      prev = p;
+      continue;
+    }
+    out.push(start === prev ? `${start}` : `${start}–${prev}`);
+    start = prev = p;
+  }
+  return out.join(', ');
+}
+
+/** Sheet-Layout (wie sheetLayout) für einen Bogen der Produktion. */
+export function productionSheetLayout(model, sheet, side = 'front') {
+  return sheetLayout({ ...model, panels: sheet.panels }, side);
+}
+
+/**
+ * Lage eines Blattes im fertig zusammengetragenen, geschlossenen Produkt.
+ * Alle Blätter liegen im Abstand der Papierstärke (Darstellung) übereinander,
+ * Blatt 0 obenauf (zum Betrachter).
+ */
+export function bookLeafMatrix(model, leaf) {
+  const base = model.matrices[model.folds.length][leaf.panel];
+  const dz = model.viewSign * model.thickness * (leaf.layer - leaf.g);
+  return multiply(translation(0, 0, dz), base);
+}
+
+/** Höhe der Bund-Drehachse für das Blättern im Gesamtprodukt (Stapelmitte). */
+export function bookAxisZ(model, production) {
+  const zTop = transformPoint(bookLeafMatrix(model, production.leaves[0]), [0, 0, 0])[2];
+  const zBottom = transformPoint(bookLeafMatrix(model, production.leaves[production.totalLeaves - 1]), [0, 0, 0])[2];
+  return (zTop + zBottom) / 2;
+}
+
+/**
+ * Richtung (Bogen-Koordinaten, ±1 in x) vom Bund zum Vorderschnitt im
+ * fertigen Produkt.
+ */
+export function foreEdgeDirection(model) {
+  return model.book.leavesSide === 'positive' ? 1 : -1;
 }

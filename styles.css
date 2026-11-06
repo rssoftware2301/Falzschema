@@ -392,3 +392,109 @@ figcaption {
   }
 }
 .page-underline { fill: #1d2430; }
+
+/* --- Produkt / Mehrere Bogen --------------------------------------------- */
+.with-unit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.with-unit input {
+  width: 80px;
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chips button {
+  padding: 5px 10px;
+  font-size: 0.85rem;
+  border-radius: 999px;
+}
+.chips button .dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: 0;
+}
+.chips button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.chips button.product {
+  font-weight: 600;
+}
+.segmented.spaced {
+  margin-top: 10px;
+}
+.badge {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  color: var(--accent);
+  margin-left: 4px;
+}
+.swatch.sheets {
+  background: linear-gradient(90deg, #e5484d, #f5a524, #2da44e, #1f6feb, #8250df);
+  border: none;
+}
+.creep-note {
+  margin: -4px 0 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.creep-note strong {
+  color: var(--text);
+}
+.overview-title {
+  margin-top: 22px;
+}
+table.overview {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+table.overview th,
+table.overview td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+table.overview th {
+  color: var(--muted);
+  font-weight: 600;
+}
+table.overview tbody tr {
+  cursor: pointer;
+}
+table.overview tbody tr:hover {
+  background: #f6f8fa;
+}
+table.overview tbody tr.active {
+  background: #eaf2ff;
+}
+table.overview .dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.satzspiegel {
+  fill: none;
+  stroke: #9aa4b2;
+  stroke-width: 0.6;
+  stroke-dasharray: 2 2;
+}
+.spine-mark {
+  fill: #8250df;
+  opacity: 0.55;
+}

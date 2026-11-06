@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Falzschema – 16-Seiter Kreuzbruch</title>
+    <title>Falzschema – Ausschießen und Falzen</title>
     <link rel="stylesheet" href="styles.css" />
     <script type="importmap">
       {
@@ -18,33 +18,39 @@
     <header class="topbar">
       <div>
         <h1>Falzschema</h1>
-        <p class="sub">16 Seiten · 3-Bruch-Kreuzbruch · Bogen 4 × 2 Seiten</p>
+        <p class="sub" id="subtitle">16 Seiten · 3-Bruch-Kreuzbruch · Bogen 4 × 2 Seiten</p>
       </div>
     </header>
 
     <main class="layout">
       <aside class="panel controls" aria-label="Steuerung">
         <section>
-          <h2>Ansicht des Bogens</h2>
-          <div class="segmented" role="group" aria-label="Bogenseite">
-            <button id="btn-front" class="active" aria-pressed="true">Vorderseite</button>
-            <button id="btn-back" aria-pressed="false">Rückseite</button>
-          </div>
-          <p class="hint">Die Rückseite wird wie beim Umschlagen gezeigt: Bogen um die senkrechte Achse gewendet.</p>
+          <h2>Produkt</h2>
+          <label class="field">
+            <span>Seitenumfang</span>
+            <select id="page-count"></select>
+          </label>
+          <label class="field">
+            <span>Bindeart</span>
+            <select id="binding">
+              <option value="saddle">Sammelheftung</option>
+              <option value="perfect">Klebebindung</option>
+            </select>
+          </label>
+          <label class="field" id="caliper-field">
+            <span>Papierstärke</span>
+            <span class="with-unit"><input id="caliper" type="number" min="0.03" max="0.5" step="0.01" value="0.10" /> mm</span>
+          </label>
+          <p id="product-info" class="hint"></p>
         </section>
 
         <section>
-          <h2>Falzanimation</h2>
-          <div class="buttons">
-            <button id="btn-reset" title="Bogen wieder flach legen">⏮ Zurück auf Anfang</button>
-            <button id="btn-prev" title="Einen Falz zurück">◀ Falz zurück</button>
-            <button id="btn-next" title="Nächsten Falz ausführen">Nächster Falz ▶</button>
-            <button id="btn-play" class="primary" title="Alle Falze nacheinander abspielen">▶ Alle Falze abspielen</button>
+          <h2>Ansicht</h2>
+          <div id="view-chips" class="chips" role="group" aria-label="Bogen oder Endprodukt wählen"></div>
+          <div class="segmented spaced" role="group" aria-label="Seite">
+            <button id="btn-front" class="active" aria-pressed="true">Vorderseite</button>
+            <button id="btn-back" aria-pressed="false">Rückseite</button>
           </div>
-          <label class="field">
-            <span>Fortschritt</span>
-            <input id="scrub" type="range" min="0" max="3" step="0.001" value="0" />
-          </label>
           <label class="field">
             <span>Geschwindigkeit</span>
             <select id="speed">
@@ -53,24 +59,57 @@
               <option value="2">schnell</option>
             </select>
           </label>
+          <p class="hint">Die Rückseite wird wie beim Umschlagen gezeigt: um die senkrechte Achse gewendet.</p>
         </section>
 
-        <section>
-          <h2>Falzschritte</h2>
-          <p class="hint top">Je Falz wählbar: welche Hälfte geklappt wird und ob nach vorne (zum Betrachter) oder nach hinten. Richtungen gelten mit Blick auf die Vorderseite.</p>
-          <ol id="steps" class="steps"></ol>
-          <button id="btn-fold-default" disabled>Standard-Falzrichtungen wiederherstellen</button>
-          <p id="status" class="status" aria-live="polite"></p>
-        </section>
+        <div id="sheet-controls">
+          <section>
+            <h2>Falzanimation <span id="sheet-label" class="badge"></span></h2>
+            <div class="buttons">
+              <button id="btn-reset" title="Bogen wieder flach legen">⏮ Zurück auf Anfang</button>
+              <button id="btn-prev" title="Einen Falz zurück">◀ Falz zurück</button>
+              <button id="btn-next" title="Nächsten Falz ausführen">Nächster Falz ▶</button>
+              <button id="btn-play" class="primary" title="Alle Falze nacheinander abspielen">▶ Alle Falze abspielen</button>
+            </div>
+            <label class="field">
+              <span>Fortschritt</span>
+              <input id="scrub" type="range" min="0" max="3" step="0.001" value="0" />
+            </label>
+          </section>
+
+          <section>
+            <h2>Falzschritte (für alle Bogen)</h2>
+            <p class="hint top">Je Falz wählbar: welche Hälfte geklappt wird und ob nach vorne (zum Betrachter) oder nach hinten. Richtungen gelten mit Blick auf die Vorderseite.</p>
+            <ol id="steps" class="steps"></ol>
+            <button id="btn-fold-default" disabled>Standard-Falzrichtungen wiederherstellen</button>
+            <p id="status" class="status" aria-live="polite"></p>
+          </section>
+        </div>
+
+        <div id="book-controls" hidden>
+          <section>
+            <h2>Zusammentragen &amp; Endverarbeitung</h2>
+            <p id="assembly-intro" class="hint top"></p>
+            <div class="buttons">
+              <button id="btn-asm-reset" title="Bogen wieder bereitlegen">⏮ Zurück auf Anfang</button>
+              <button id="btn-asm-play" class="primary">▶ Zusammentragen abspielen</button>
+            </div>
+            <label class="field">
+              <span>Fortschritt</span>
+              <input id="asm-scrub" type="range" min="0" max="2" step="0.001" value="0" />
+            </label>
+            <p id="assembly-status" class="status" aria-live="polite"></p>
+          </section>
+        </div>
 
         <section>
-          <h2>Blättern im Endprodukt</h2>
+          <h2 id="browse-title">Blättern</h2>
           <div id="book-pages" class="book-pages" aria-live="polite">–</div>
           <div class="buttons">
             <button id="btn-page-prev" title="Zurückblättern (Pfeiltaste links)">◀ Zurück</button>
             <button id="btn-page-next" title="Vorblättern (Pfeiltaste rechts)">Vor ▶</button>
-            <button id="btn-page-first" title="Zur Titelseite (Pos1)">⏮ Seite 1</button>
-            <button id="btn-page-last" title="Zur letzten Seite (Ende)">Seite 16 ⏭</button>
+            <button id="btn-page-first" title="Zum Anfang (Pos1)">⏮ Anfang</button>
+            <button id="btn-page-last" title="Zum Ende (Ende)">Ende ⏭</button>
           </div>
           <p id="book-hint" class="hint"></p>
         </section>
@@ -81,18 +120,20 @@
         </section>
       </aside>
 
-      <section class="panel stage" aria-label="3D-Darstellung des Druckbogens">
+      <section class="panel stage" aria-label="3D-Darstellung">
         <div id="viewport"></div>
         <div class="legend">
           <span><i class="swatch front"></i>Vorderseite (Schöndruck)</span>
           <span><i class="swatch back"></i>Rückseite (Widerdruck)</span>
           <span><i class="swatch fold"></i>nächster Falz</span>
           <span><i class="swatch head"></i>Kopf der Seite</span>
+          <span id="legend-sheets" hidden><i class="swatch sheets"></i>Kantenfarbe = Bogen</span>
         </div>
       </section>
 
       <section class="panel schema" aria-label="Ausschuss-Schema">
-        <h2>Ausschuss (Seitenverteilung auf dem Bogen)</h2>
+        <h2 id="schema-title">Ausschuss</h2>
+        <p id="schema-creep" class="creep-note" hidden></p>
         <div class="schema-grid">
           <figure>
             <svg id="schema-front" role="img" aria-label="Vorderseite des Bogens"></svg>
@@ -104,9 +145,17 @@
           </figure>
         </div>
         <p class="hint">
-          Kopfstehende Seitenzahlen sind auf dem Bogen um 180° gedreht („Kopf an Kopf“). Die gestrichelten
-          Linien sind die Falzlinien mit der Nummer des Falzschritts.
+          Kopfstehende Seitenzahlen sind auf dem Bogen um 180° gedreht („Kopf an Kopf“). Die gestrichelten roten
+          Linien sind die Falzlinien mit der Nummer des Falzschritts, der graue Rahmen ist der Satzspiegel.
         </p>
+
+        <h2 class="overview-title">Bogenübersicht</h2>
+        <table class="overview">
+          <thead>
+            <tr><th>Bogen</th><th>Seiten</th><th>Lage im Produkt</th><th>Verdrängung</th></tr>
+          </thead>
+          <tbody id="sheet-overview"></tbody>
+        </table>
       </section>
     </main>
 

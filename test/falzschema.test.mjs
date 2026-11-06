@@ -136,3 +136,48 @@ test('alle 32 Kombinationen von Falzrichtungen ergeben eine gültige Paginierung
     }
   assert.ok(layouts.size > 1);
 });
+
+test('Produktion: Klebebindung und Sammelheftung paginieren alle Seiten', async () => {
+  const { computeProduction, PAGE_COUNTS, bookLeafMatrix } = await import('../src/falzschema.js');
+  const model = computeScheme(KREUZBRUCH_3_16);
+  for (const pages of PAGE_COUNTS) {
+    for (const binding of ['perfect', 'saddle']) {
+      const prod = computeProduction(model, { pages, binding, caliper: 0.1 });
+      assert.equal(prod.n, pages / 16);
+      const all = prod.sheets.flatMap((s) => s.pages).sort((a, b) => a - b);
+      assert.deepEqual(all, Array.from({ length: pages }, (_, i) => i + 1));
+      // Blätter liegen im geschlossenen Produkt in der Reihenfolge g übereinander
+      const zs = prod.leaves.map((l) => model.viewSign * transformPoint(bookLeafMatrix(model, l), [0, 0, 0])[2]);
+      for (let g = 1; g < zs.length; g++) assert.ok(zs[g] < zs[g - 1]);
+      // Oben liegende Seite jedes Blattes = 2g+1
+      for (const leaf of prod.leaves) {
+        const p = prod.sheets[leaf.sheet].panels[leaf.panel];
+        const m = bookLeafMatrix(model, leaf);
+        const up = model.viewSign * transformVector(m, [0, 0, 1])[2] > 0 ? p.front.page : p.back.page;
+        assert.equal(up, 2 * leaf.g + 1);
+      }
+    }
+  }
+});
+
+test('Produktion: Seitenverteilung je Bogen und Verdrängung', async () => {
+  const { computeProduction } = await import('../src/falzschema.js');
+  const model = computeScheme(KREUZBRUCH_3_16);
+  const perfect = computeProduction(model, { pages: 32, binding: 'perfect' });
+  assert.deepEqual(perfect.sheets.map((s) => s.pageRanges), ['1–16', '17–32']);
+  assert.deepEqual(perfect.sheets.map((s) => s.creep), [0, 0]);
+  assert.deepEqual(
+    fmt(sheetLayout({ ...model, panels: perfect.sheets[1].panels }, 'front')),
+    ['21v 28v 25v 24v', '20 29 32 17'],
+  );
+
+  const saddle = computeProduction(model, { pages: 128, binding: 'saddle', caliper: 0.1 });
+  assert.equal(saddle.sheets[0].pageRanges, '1–8, 121–128');
+  assert.equal(saddle.sheets[7].pageRanges, '57–72');
+  assert.deepEqual(saddle.sheets.map((s) => s.creep), [0, 0.4, 0.8, 1.2, 1.6, 2, 2.4, 2.8]);
+  // Bogen 1 der Sammelheftung: vorne 1..8, hinten 121..128 auf denselben Feldern wie 1..16
+  assert.deepEqual(
+    fmt(sheetLayout({ ...model, panels: saddle.sheets[0].panels }, 'front')),
+    ['5v 124v 121v 8v', '4 125 128 1'],
+  );
+});
