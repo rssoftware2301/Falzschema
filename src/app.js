@@ -562,6 +562,24 @@ function centerOf(b) {
 
 const $ = (id) => document.getElementById(id);
 
+// --- Register -------------------------------------------------------------------
+
+let activeTab = 'anim';
+function selectTab(tab) {
+  activeTab = tab;
+  for (const [name, btn, panel] of [
+    ['anim', 'tab-anim', 'panel-anim'],
+    ['schema', 'tab-schema', 'panel-schema'],
+  ]) {
+    $(btn).classList.toggle('active', name === tab);
+    $(btn).setAttribute('aria-selected', name === tab);
+    $(panel).hidden = name !== tab;
+  }
+  if (tab === 'anim') resize();
+}
+$('tab-anim').addEventListener('click', () => selectTab('anim'));
+$('tab-schema').addEventListener('click', () => selectTab('schema'));
+
 // --- Produkt -------------------------------------------------------------------
 
 $('page-count').innerHTML = PAGE_COUNTS.map(
@@ -624,7 +642,21 @@ function renderProductTexts() {
 
 // --- Ansicht: Bogen / Endprodukt ------------------------------------------------
 
+function renderSchemaChips() {
+  const chips = $('schema-chips');
+  chips.replaceChildren();
+  production.sheets.forEach((sheet, s) => {
+    const b = document.createElement('button');
+    b.innerHTML = `<i class="dot" style="background:${SHEET_COLORS[s % SHEET_COLORS.length]}"></i>Bogen ${s + 1}`;
+    b.title = `Seiten ${sheet.pageRanges}`;
+    b.classList.toggle('active', view.sheet === s);
+    b.addEventListener('click', () => selectView(view.mode === 'book' ? 'book' : 'sheet', s));
+    chips.appendChild(b);
+  });
+}
+
 function renderViewChips() {
+  renderSchemaChips();
   const chips = $('view-chips');
   chips.replaceChildren();
   production.sheets.forEach((sheet, s) => {
@@ -644,7 +676,8 @@ function renderViewChips() {
 }
 
 function selectView(mode, sheet = view.sheet) {
-  const changed = mode !== view.mode || sheet !== view.sheet;
+  // Im Endprodukt ändert die Bogenwahl nur das Schema – das Blättern bleibt erhalten
+  const changed = mode !== view.mode || (mode === 'sheet' && sheet !== view.sheet);
   view.mode = mode;
   view.sheet = sheet;
   if (changed) closeBookNow();
@@ -692,7 +725,7 @@ function renderOverview() {
       <td>${sheet.pageRanges}</td><td>${position}</td><td>${saddle ? fmtMm(sheet.creep) : '–'}</td>`;
     tr.classList.toggle('active', view.sheet === s);
     tr.title = 'Bogen anzeigen';
-    tr.addEventListener('click', () => selectView('sheet', s));
+    tr.addEventListener('click', () => selectView(view.mode === 'book' ? 'book' : 'sheet', s));
     tbody.appendChild(tr);
   });
 }
@@ -865,7 +898,7 @@ $('btn-page-first').addEventListener('click', () => turnTo(0));
 $('btn-page-last').addEventListener('click', () => turnTo(leafCount()));
 
 document.addEventListener('keydown', (e) => {
-  if (e.target.closest('input, select, textarea') || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (activeTab !== 'anim' || e.target.closest('input, select, textarea') || e.altKey || e.ctrlKey || e.metaKey) return;
   const actions = {
     ArrowRight: () => turnTo(currentLeaf() + 1),
     ArrowLeft: () => turnTo(currentLeaf() - 1),
@@ -993,6 +1026,7 @@ function updateUi(pose) {
 
 function resize() {
   const { clientWidth: w, clientHeight: h } = container;
+  if (w === 0 || h === 0) return; // Register ausgeblendet
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -1079,7 +1113,7 @@ function frame() {
   scene.updateMatrixWorld();
   updateClipping(pose?.trims);
   updateUi(pose);
-  renderer.render(scene, camera);
+  if (activeTab === 'anim') renderer.render(scene, camera);
   first = false;
   requestAnimationFrame(frame);
 }
@@ -1103,6 +1137,7 @@ window.falzschema = {
   setSide,
   turnTo,
   selectView,
+  selectTab,
   setProduct(p) {
     Object.assign(product, p);
     $('page-count').value = String(product.pages);

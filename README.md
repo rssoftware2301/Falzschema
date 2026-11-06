@@ -31,6 +31,9 @@ npm run build
 
 ## Funktionen
 
+- **Zwei Register**: „Animation“ (links die Steuerung mit eigenem Scrollbalken,
+  rechts das feststehende 3D-Bild) und „Ausschuss & Bogenübersicht“ (Schema
+  beider Bogenseiten und Übersicht aller Bogen, an die Fensterbreite angepasst).
 - **Produkt wählen**: Seitenumfang 16, 32, 48, 64, 80, 96, 112 oder 128 Seiten
   (= 1 bis 8 Druckbogen à 16 Seiten, 3-Bruch-Kreuzbruch) und Bindeart
   **Sammelheftung** oder **Klebebindung**; bei Sammelheftung zusätzlich die

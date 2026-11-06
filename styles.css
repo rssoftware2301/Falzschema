@@ -20,15 +20,23 @@
 html,
 body {
   margin: 0;
+  height: 100%;
   background: var(--bg);
   color: var(--text);
   font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
+body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* gescrollt wird nur innerhalb der Bereiche */
+}
+
 .topbar {
-  padding: 14px 20px;
+  padding: 12px 20px 0;
   background: #18202c;
   color: #fff;
+  flex: none;
 }
 .topbar h1 {
   margin: 0;
@@ -40,14 +48,63 @@ body {
   font-size: 0.9rem;
 }
 
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+}
+.tabs button {
+  border: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: #b9c3d1;
+  padding: 9px 16px;
+  font-weight: 600;
+}
+.tabs button:hover {
+  background: #263142;
+  color: #fff;
+}
+.tabs button.active {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Register „Animation“: Seitenleiste scrollt für sich, das 3D-Bild bleibt stehen */
 .layout {
+  flex: 1;
+  min-height: 0;
   display: grid;
-  grid-template-columns: 320px 1fr;
-  grid-template-areas:
-    'controls stage'
-    'schema schema';
+  grid-template-columns: 330px 1fr;
+  grid-template-areas: 'controls stage';
   gap: 16px;
   padding: 16px;
+}
+.layout[hidden],
+.schema-page[hidden] {
+  display: none;
+}
+
+/* Register „Ausschuss & Bogenübersicht“: an die Fensterbreite angepasst */
+.schema-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+}
+.schema-page .schema {
+  max-width: 1500px;
+  margin: 0 auto;
+}
+.schema-chips {
+  margin-bottom: 14px;
+}
+.hint.inline {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  margin: 0;
 }
 
 .panel {
@@ -59,6 +116,9 @@ body {
 
 .controls {
   grid-area: controls;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .stage {
   grid-area: stage;
@@ -66,10 +126,7 @@ body {
   flex-direction: column;
   padding: 0;
   overflow: hidden;
-  min-height: 520px;
-}
-.schema {
-  grid-area: schema;
+  min-height: 0;
 }
 
 h2 {
@@ -79,7 +136,11 @@ h2 {
   color: var(--muted);
   margin: 0 0 10px;
 }
-section + section {
+section + section,
+#sheet-controls,
+#book-controls,
+#sheet-controls + section,
+#book-controls + section {
   margin-top: 20px;
 }
 
@@ -253,7 +314,7 @@ button.primary:hover {
 #viewport {
   flex: 1;
   position: relative;
-  min-height: 460px;
+  min-height: 0;
   background: radial-gradient(ellipse at center, #f9fbfd 0%, #dfe5ed 100%);
 }
 #viewport canvas {
@@ -310,6 +371,7 @@ figure {
 figure svg {
   width: 100%;
   height: auto;
+  max-height: 58vh; /* beide Bogenseiten ohne Scrollen sichtbar */
   display: block;
 }
 figcaption {
@@ -373,22 +435,42 @@ figcaption {
 }
 
 @media (max-width: 860px) {
+  /* Schmale Bildschirme: 3D-Bild oben, Steuerung darunter scrollbar */
   .layout {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(300px, 45%) 1fr;
     grid-template-areas:
       'stage'
-      'controls'
-      'schema';
+      'controls';
     padding: 10px;
+    gap: 10px;
+  }
+  .schema-page {
+    padding: 10px;
+  }
+  .layout {
+    grid-template-rows: minmax(300px, 52%) 1fr;
+  }
+  .legend {
+    font-size: 0.72rem;
+    gap: 4px 10px;
+    padding: 6px 10px;
+  }
+  .tabs button {
+    padding: 8px 12px;
+  }
+  table.overview {
+    font-size: 0.82rem;
+  }
+  table.overview th:nth-child(3),
+  table.overview td:nth-child(3) {
+    display: none;
   }
   .schema-grid {
     grid-template-columns: 1fr;
   }
-  .stage {
-    min-height: 380px;
-  }
   #viewport {
-    min-height: 340px;
+    min-height: 0;
   }
 }
 .page-underline { fill: #1d2430; }

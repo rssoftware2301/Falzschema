@@ -20,9 +20,13 @@
         <h1>Falzschema</h1>
         <p class="sub" id="subtitle">16 Seiten · 3-Bruch-Kreuzbruch · Bogen 4 × 2 Seiten</p>
       </div>
+      <nav class="tabs" role="tablist" aria-label="Bereiche">
+        <button role="tab" id="tab-anim" aria-controls="panel-anim" aria-selected="true" class="active">Animation</button>
+        <button role="tab" id="tab-schema" aria-controls="panel-schema" aria-selected="false">Ausschuss &amp; Bogenübersicht</button>
+      </nav>
     </header>
 
-    <main class="layout">
+    <main class="layout" id="panel-anim" role="tabpanel" aria-labelledby="tab-anim">
       <aside class="panel controls" aria-label="Steuerung">
         <section>
           <h2>Produkt</h2>
@@ -130,8 +134,11 @@
           <span id="legend-sheets" hidden><i class="swatch sheets"></i>Kantenfarbe = Bogen</span>
         </div>
       </section>
+    </main>
 
+    <main class="schema-page" id="panel-schema" role="tabpanel" aria-labelledby="tab-schema" hidden>
       <section class="panel schema" aria-label="Ausschuss-Schema">
+        <div id="schema-chips" class="chips schema-chips" role="group" aria-label="Bogen wählen"></div>
         <h2 id="schema-title">Ausschuss</h2>
         <p id="schema-creep" class="creep-note" hidden></p>
         <div class="schema-grid">
@@ -149,7 +156,7 @@
           Linien sind die Falzlinien mit der Nummer des Falzschritts, der graue Rahmen ist der Satzspiegel.
         </p>
 
-        <h2 class="overview-title">Bogenübersicht</h2>
+        <h2 class="overview-title">Bogenübersicht <span class="hint inline">– Zeile anklicken, um den Bogen anzuzeigen</span></h2>
         <table class="overview">
           <thead>
             <tr><th>Bogen</th><th>Seiten</th><th>Lage im Produkt</th><th>Verdrängung</th></tr>
