@@ -1,183 +1,191 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  KREUZBRUCH_3_16,
-  computeScheme,
+  CIP4_CATALOG,
+  computeSignature,
   sheetLayout,
   panelMatrixAt,
   transformPoint,
   transformVector,
   creases,
-  leafMatrixAt,
+  describeEntry,
+  computeProduction,
+  suggestGroups,
+  bookLeafMatrix,
+  turnCanonical,
+  signatureAxisZ,
   openPages,
+  pageRanges,
 } from '../src/falzschema.js';
 
-const fmt = (grid) => grid.map((row) => row.map((c) => `${c.page}${c.rotation ? 'v' : ''}`).join(' '));
+// Rotation der Seitenzahl: '' aufrecht, 'v' kopfstehend, '>' 90° im Uhrzeigersinn, '<' 90° gegen
+const ROT = { 0: '', 180: 'v', 90: '>', 270: '<' };
+const fmt = (grid) => grid.map((row) => row.map((c) => `${c.page}${ROT[c.rotation]}`).join(' '));
 
-test('Vorderseite entspricht dem Standard-Ausschuss 16 Seiten Kreuzbruch', () => {
-  const c = computeScheme(KREUZBRUCH_3_16);
-  assert.deepEqual(fmt(sheetLayout(c, 'front')), ['5v 12v 9v 8v', '4 13 16 1']);
+// Aus den Diagrammen des CIP4 Pagination Catalog 1.4.3 abgelesen (Vorderseite / Rückseite)
+const CIP4_DIAGRAMS = {
+  'F2-1': [['1'], ['2']],
+  'F10-1': [['9 8 5 4 1'], ['2 3 6 7 10']],
+  'F10-2': [['2 9 4 7 6'], ['5 8 3 10 1']],
+  'F10-3': [['2 9 8 3 6'], ['5 4 7 10 1']],
+  'F8-7': [['6> 7<', '3> 2<'], ['8> 5<', '1> 4<']],
+  'F12-10': [['8> 11< 10>', '5> 2< 3>'], ['9< 12> 7<', '4< 1> 6<']],
+  'F12-11': [['10v 11v 2v', '7 6 3'], ['1v 12v 9v', '4 5 8']],
+  'F12-12': [['7> 6<', '10> 11<', '3> 2<'], ['5> 8<', '12> 9<', '1> 4<']],
+  'F16-6': [['3v 14v 15v 2v', '6 11 10 7'], ['1v 16v 13v 4v', '8 9 12 5']],
+  'F16-7': [['11v 6v 7v 10v', '14 3 2 15'], ['9v 8v 5v 12v', '16 1 4 13']],
+  'F16-8': [['15v 2v 3v 14v', '10 7 6 11'], ['13v 4v 1v 16v', '12 5 8 9']],
+  'F32-3': [
+    ['23v 10v 15v 18v 19v 14v 11v 22v', '26 7 2 31 30 3 6 27'],
+    ['21v 12v 13v 20v 17v 16v 9v 24v', '28 5 4 29 32 1 8 25'],
+  ],
+  'F32-4': [
+    ['30> 19< 18> 31<', '3> 14< 15> 2<', '6> 11< 10> 7<', '27> 22< 23> 26<'],
+    ['32> 17< 20> 29<', '1> 16< 13> 4<', '8> 9< 12> 5<', '25> 24< 21> 28<'],
+  ],
+  'F64-1': [
+    [
+      '35v 30v 3v 62v 63v 2v 31v 34v',
+      '38 27 6 59 58 7 26 39',
+      '43v 22v 11v 54v 55v 10v 23v 42v',
+      '46 19 14 51 50 15 18 47',
+    ],
+    [
+      '33v 32v 1v 64v 61v 4v 29v 36v',
+      '40 25 8 57 60 5 28 37',
+      '41v 24v 9v 56v 53v 12v 21v 44v',
+      '48 17 16 49 52 13 20 45',
+    ],
+  ],
+};
+
+test('Katalog: 89 Einträge, 3 davon im CIP4-Katalog nicht unterstützt', () => {
+  assert.equal(CIP4_CATALOG.length, 89);
+  assert.deepEqual(
+    CIP4_CATALOG.filter((e) => e.unsupported).map((e) => e.id),
+    ['F6-3', 'F6-6', 'F6-7'],
+  );
 });
 
-test('Rückseite (umgeschlagen) entspricht dem Standard-Ausschuss', () => {
-  const c = computeScheme(KREUZBRUCH_3_16);
-  assert.deepEqual(fmt(sheetLayout(c, 'back')), ['7v 10v 11v 6v', '2 15 14 3']);
-});
+for (const [id, [front, back]] of Object.entries(CIP4_DIAGRAMS)) {
+  test(`${id}: berechneter Ausschuss entspricht dem CIP4-Diagramm`, () => {
+    const sig = computeSignature(id);
+    assert.deepEqual(fmt(sheetLayout(sig, 'front')), front);
+    assert.deepEqual(fmt(sheetLayout(sig, 'back')), back);
+  });
+}
 
-test('alle 16 Seiten kommen genau einmal vor; Vorder-/Rückseite eines Blattes sind Nachbarseiten', () => {
-  const c = computeScheme(KREUZBRUCH_3_16);
-  const pages = c.panels.flatMap((p) => [p.front.page, p.back.page]).sort((a, b) => a - b);
-  assert.deepEqual(pages, Array.from({ length: 16 }, (_, i) => i + 1));
-  for (const p of c.panels) {
-    const [a, b] = [p.front.page, p.back.page].sort((x, y) => x - y);
-    assert.equal(b - a, 1);
-    assert.equal(a % 2, 1);
+test('alle unterstützten Schemata lassen sich falzen und paginieren', () => {
+  for (const entry of CIP4_CATALOG) {
+    if (entry.unsupported) continue;
+    const sig = computeSignature(entry);
+    assert.equal(sig.cols * sig.rows * 2, entry.pages, entry.id);
+    const pages = sig.panels.flatMap((p) => [p.front.page, p.back.page]).sort((a, b) => a - b);
+    assert.deepEqual(pages, Array.from({ length: entry.pages }, (_, i) => i + 1), entry.id);
+    // Vorder- und Rückseite eines Blattes sind Nachbarseiten (ungerade/gerade)
+    for (const p of sig.panels) {
+      const [a, b] = [p.front.page, p.back.page].sort((x, y) => x - y);
+      assert.equal(b - a, 1, entry.id);
+      assert.equal(a % 2, 1, entry.id);
+    }
+    // Kanonisch: Bund bei x = 0, Seite 0..Breite, oberstes Blatt bei z = 0
+    const c = sig.canonical[sig.layers[0]];
+    assert.ok(Math.abs(c[12] - sig.pageWidth / 2) < 1e-6, entry.id);
+    assert.ok(Math.abs(c[13] - sig.pageHeight / 2) < 1e-6, entry.id);
+    assert.ok(Math.abs(c[14]) < 1e-6, entry.id);
+    assert.ok(describeEntry(entry).longText.startsWith(`${entry.pages} Seiten`));
   }
-});
-
-test('nach dem Falzen liegen alle Felder deckungsgleich in 8 Lagen', () => {
-  const c = computeScheme(KREUZBRUCH_3_16);
-  const final = c.matrices.at(-1);
-  const centers = final.map((m) => transformPoint(m, [0, 0, 0]));
-  for (const ctr of centers) {
-    assert.ok(Math.abs(ctr[0] - centers[0][0]) < 1e-6);
-    assert.ok(Math.abs(ctr[1] - centers[0][1]) < 1e-6);
-  }
-  const zs = new Set(centers.map((ctr) => ctr[2].toFixed(4)));
-  assert.equal(zs.size, 8);
-  // Seite 1 liegt obenauf und zeigt zum Betrachter (Vorderseite bleibt außen)
-  const top = c.panels[c.layers[0]];
-  assert.equal(top.front.page, 1);
-  assert.ok(transformVector(final[top.id], [0, 0, 1])[2] > 0);
 });
 
 test('Animation: Zwischenstände sind stetig an den Falzgrenzen', () => {
-  const c = computeScheme(KREUZBRUCH_3_16);
-  for (let step = 0; step < c.folds.length; step++) {
-    for (let i = 0; i < c.panels.length; i++) {
-      const end = panelMatrixAt(c, i, step, 1);
-      const next = panelMatrixAt(c, i, step + 1, 0);
+  const sig = computeSignature('F16-7');
+  for (let step = 0; step < sig.folds.length; step++) {
+    for (let i = 0; i < sig.panels.length; i++) {
+      const end = panelMatrixAt(sig, i, step, 1);
+      const next = panelMatrixAt(sig, i, step + 1, 0);
       end.forEach((v, k) => assert.ok(Math.abs(v - next[k]) < 1e-9));
     }
   }
 });
 
-test('Falzlinien auf dem flachen Bogen', () => {
-  const c = computeScheme(KREUZBRUCH_3_16, { pageWidth: 70, pageHeight: 99 });
-  const [f1, f2, f3] = creases(c);
+test('Falzlinien von F16-7 auf dem flachen Bogen', () => {
+  const sig = computeSignature('F16-7', { pageWidth: 70, pageHeight: 99 });
+  const [f1, f2, f3] = creases(sig);
   assert.deepEqual(f1, [[[0, -99], [0, 99]]]);
   assert.deepEqual(f2, [[[-140, 0], [140, 0]]]);
-  assert.deepEqual(
-    f3.map((s) => s[0][0]).sort((a, b) => a - b),
-    [-70, 70],
-  );
-  for (const s of f3) assert.deepEqual([s[0][1], s[1][1]], [-99, 99]);
+  assert.deepEqual(f3.map((s) => s[0][0]).sort((a, b) => a - b), [-70, 70]);
 });
 
-test('Blättern: umgeblätterte Blätter liegen links vom Bund, richtige Seite oben', () => {
-  const c = computeScheme(KREUZBRUCH_3_16);
-  const { spineX } = c.book;
-  // Nach dem Umblättern von k Blättern: linke Seite oben = 2k, rechte Seite oben = 2k+1
-  for (let k = 1; k < 8; k++) {
-    const leftLeaf = c.panels[c.layers[k - 1]];
-    const rightLeaf = c.panels[c.layers[k]];
-    const mL = leafMatrixAt(c, leftLeaf.id, 1);
-    const mR = leafMatrixAt(c, rightLeaf.id, 0);
-    assert.ok(transformPoint(mL, [0, 0, 0])[0] < spineX);
-    assert.ok(transformPoint(mR, [0, 0, 0])[0] > spineX);
+test('Blättern: nach k Blättern liegen links Seite 2k und rechts 2k+1', () => {
+  for (const id of ['F16-7', 'F8-7', 'F12-11', 'F32-4']) {
+    const sig = computeSignature(id);
+    const axis = signatureAxisZ(sig);
     const faceUp = (m, p) => (transformVector(m, [0, 0, 1])[2] > 0 ? p.front.page : p.back.page);
-    assert.equal(faceUp(mL, leftLeaf), 2 * k);
-    assert.equal(faceUp(mR, rightLeaf), 2 * k + 1);
-    assert.deepEqual(openPages(c, k), { left: 2 * k, right: 2 * k + 1 });
-    // Kopf bleibt oben (Drehung um die senkrechte Achse)
-    for (const [m, p] of [[mL, leftLeaf], [mR, rightLeaf]]) {
-      assert.ok(transformVector(m, [...p.front.up, 0])[1] > 0.99);
-    }
-  }
-  // Oberstes umgeblättertes Blatt liegt auch links oben auf dem Stapel
-  const z = (k) => transformPoint(leafMatrixAt(c, c.layers[k], 1), [0, 0, 0])[2];
-  for (let k = 1; k < 8; k++) assert.ok(z(k) > z(k - 1));
-  assert.deepEqual(openPages(c, 0), { left: null, right: 1 });
-  assert.deepEqual(openPages(c, 8), { left: 16, right: null });
-});
-
-test('alle 32 Kombinationen von Falzrichtungen ergeben eine gültige Paginierung', async () => {
-  const { kreuzbruch16 } = await import('../src/falzschema.js');
-  const sides = ['positive', 'negative'];
-  const dirs = ['up', 'down'];
-  const layouts = new Set();
-  for (const m1 of sides) for (const m2 of sides) for (const m3 of sides)
-    for (const d1 of dirs) for (const d2 of dirs) for (const d3 of dirs) {
-      const settings = [
-        { moving: m1, direction: d1 },
-        { moving: m2, direction: d2 },
-        { moving: m3, direction: d3 },
-      ];
-      const c = computeScheme(kreuzbruch16(settings));
-      const pages = c.panels.flatMap((p) => [p.front.page, p.back.page]).sort((a, b) => a - b);
-      assert.deepEqual(pages, Array.from({ length: 16 }, (_, i) => i + 1));
-      layouts.add(fmt(sheetLayout(c, 'front')).join('/'));
-
-      // Blättern: nach k Blättern liegt links Seite 2k, rechts 2k+1 – vom Leser aus gesehen
-      const v = c.viewSign;
-      const faceUp = (m, p) => (v * transformVector(m, [0, 0, 1])[2] > 0 ? p.front.page : p.back.page);
-      for (let k = 1; k < 8; k++) {
-        const leftLeaf = c.panels[c.layers[k - 1]];
-        const rightLeaf = c.panels[c.layers[k]];
-        const mL = leafMatrixAt(c, leftLeaf.id, 1);
-        const mR = leafMatrixAt(c, rightLeaf.id, 0);
-        assert.equal(faceUp(mL, leftLeaf), 2 * k);
-        assert.equal(faceUp(mR, rightLeaf), 2 * k + 1);
-        // Leser blickt von v·z: "links" ist bei v = -1 die +x-Seite
-        const xL = v * transformPoint(mL, [0, 0, 0])[0];
-        const xR = v * transformPoint(mR, [0, 0, 0])[0];
-        assert.ok(xL < xR);
-      }
-    }
-  assert.ok(layouts.size > 1);
-});
-
-test('Produktion: Klebebindung und Sammelheftung paginieren alle Seiten', async () => {
-  const { computeProduction, PAGE_COUNTS, bookLeafMatrix } = await import('../src/falzschema.js');
-  const model = computeScheme(KREUZBRUCH_3_16);
-  for (const pages of PAGE_COUNTS) {
-    for (const binding of ['perfect', 'saddle']) {
-      const prod = computeProduction(model, { pages, binding, caliper: 0.1 });
-      assert.equal(prod.n, pages / 16);
-      const all = prod.sheets.flatMap((s) => s.pages).sort((a, b) => a - b);
-      assert.deepEqual(all, Array.from({ length: pages }, (_, i) => i + 1));
-      // Blätter liegen im geschlossenen Produkt in der Reihenfolge g übereinander
-      const zs = prod.leaves.map((l) => model.viewSign * transformPoint(bookLeafMatrix(model, l), [0, 0, 0])[2]);
-      for (let g = 1; g < zs.length; g++) assert.ok(zs[g] < zs[g - 1]);
-      // Oben liegende Seite jedes Blattes = 2g+1
-      for (const leaf of prod.leaves) {
-        const p = prod.sheets[leaf.sheet].panels[leaf.panel];
-        const m = bookLeafMatrix(model, leaf);
-        const up = model.viewSign * transformVector(m, [0, 0, 1])[2] > 0 ? p.front.page : p.back.page;
-        assert.equal(up, 2 * leaf.g + 1);
-      }
+    for (let k = 1; k < sig.leaves; k++) {
+      const left = sig.panels[sig.layers[k - 1]];
+      const right = sig.panels[sig.layers[k]];
+      const mL = turnCanonical(sig.canonical[left.id], 1, axis);
+      const mR = sig.canonical[right.id];
+      assert.equal(faceUp(mL, left), 2 * k, id);
+      assert.equal(faceUp(mR, right), 2 * k + 1, id);
+      assert.ok(transformPoint(mL, [0, 0, 0])[0] < 0 && transformPoint(mR, [0, 0, 0])[0] > 0, id);
+      assert.deepEqual(openPages(k, sig.leaves), { left: 2 * k, right: 2 * k + 1 });
     }
   }
 });
 
-test('Produktion: Seitenverteilung je Bogen und Verdrängung', async () => {
-  const { computeProduction } = await import('../src/falzschema.js');
-  const model = computeScheme(KREUZBRUCH_3_16);
-  const perfect = computeProduction(model, { pages: 32, binding: 'perfect' });
-  assert.deepEqual(perfect.sheets.map((s) => s.pageRanges), ['1–16', '17–32']);
-  assert.deepEqual(perfect.sheets.map((s) => s.creep), [0, 0]);
-  assert.deepEqual(
-    fmt(sheetLayout({ ...model, panels: perfect.sheets[1].panels }, 'front')),
-    ['21v 28v 25v 24v', '20 29 32 17'],
-  );
+test('Vorschlag für die Bogenaufteilung', () => {
+  assert.deepEqual(suggestGroups(76), [
+    { count: 4, scheme: 'F16-7' },
+    { count: 1, scheme: 'F8-7' },
+    { count: 1, scheme: 'F4-1' },
+  ]);
+  assert.deepEqual(suggestGroups(16), [{ count: 1, scheme: 'F16-7' }]);
+});
 
-  const saddle = computeProduction(model, { pages: 128, binding: 'saddle', caliper: 0.1 });
-  assert.equal(saddle.sheets[0].pageRanges, '1–8, 121–128');
-  assert.equal(saddle.sheets[7].pageRanges, '57–72');
-  assert.deepEqual(saddle.sheets.map((s) => s.creep), [0, 0.4, 0.8, 1.2, 1.6, 2, 2.4, 2.8]);
-  // Bogen 1 der Sammelheftung: vorne 1..8, hinten 121..128 auf denselben Feldern wie 1..16
-  assert.deepEqual(
-    fmt(sheetLayout({ ...model, panels: saddle.sheets[0].panels }, 'front')),
-    ['5v 124v 121v 8v', '4 125 128 1'],
-  );
+test('Produktion 76 Seiten = 4×F16-6 + 1×F8-7 + 1×F4-1, beide Bindearten', () => {
+  const groups = [
+    { count: 4, scheme: 'F16-6' },
+    { count: 1, scheme: 'F8-7' },
+    { count: 1, scheme: 'F4-1' },
+  ];
+  for (const binding of ['perfect', 'saddle']) {
+    const prod = computeProduction(groups, { binding, caliper: 0.1, pages: 76 });
+    assert.deepEqual(prod.errors, []);
+    assert.equal(prod.n, 6);
+    const all = prod.sheets.flatMap((s) => s.pages).sort((a, b) => a - b);
+    assert.deepEqual(all, Array.from({ length: 76 }, (_, i) => i + 1));
+    // im geschlossenen Produkt liegen die Blätter in der Reihenfolge g, oben jeweils Seite 2g+1
+    let prevZ = Infinity;
+    for (const leaf of prod.leaves) {
+      const m = bookLeafMatrix(prod, leaf);
+      const z = transformPoint(m, [0, 0, 0])[2];
+      assert.ok(z < prevZ);
+      prevZ = z;
+      const p = prod.sheets[leaf.sheet].panels[leaf.panel];
+      assert.equal(transformVector(m, [0, 0, 1])[2] > 0 ? p.front.page : p.back.page, 2 * leaf.g + 1);
+    }
+  }
+  const perfect = computeProduction(groups, { binding: 'perfect' });
+  assert.deepEqual(perfect.sheets.map((s) => s.pageRanges), ['1–16', '17–32', '33–48', '49–64', '65–72', '73–76']);
+  const saddle = computeProduction(groups, { binding: 'saddle', caliper: 0.1 });
+  assert.deepEqual(saddle.sheets.map((s) => s.pageRanges), [
+    '1–8, 69–76',
+    '9–16, 61–68',
+    '17–24, 53–60',
+    '25–32, 45–52',
+    '33–36, 41–44',
+    '37–40',
+  ]);
+  assert.deepEqual(saddle.sheets.map((s) => s.creep), [0, 0.4, 0.8, 1.2, 1.6, 1.8]);
+});
+
+test('Produktion: Fehlermeldungen', () => {
+  assert.match(computeProduction([{ count: 1, scheme: 'F16-7' }], { pages: 20 }).errors[0], /16 statt 20/);
+  assert.match(computeProduction([{ count: 1, scheme: 'F6-1' }], { binding: 'saddle' }).errors[0], /Sammelheftung/);
+  assert.match(computeProduction([{ count: 1, scheme: 'F6-3' }], {}).errors[0], /nicht unterstützt/);
+});
+
+test('pageRanges', () => {
+  assert.equal(pageRanges([1, 2, 3, 7, 8, 10]), '1–3, 7–8, 10');
 });

@@ -1,21 +1,22 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/OrbitControls.js';
 import {
-  DEFAULT_FOLD_SETTINGS,
-  PAGE_COUNTS,
+  CIP4_CATALOG,
   BINDINGS,
-  kreuzbruch16,
-  halfName,
-  directionName,
-  computeScheme,
+  SHEET_PAGE_COUNTS,
+  DEFAULT_SCHEMES,
+  catalogEntry,
+  computeSignature,
   computeProduction,
-  productionSheetLayout,
+  suggestGroups,
+  describeEntry,
+  foldText,
+  sheetLayout,
   bookLeafMatrix,
   bookAxisZ,
-  foreEdgeDirection,
-  turnAboutSpine,
+  signatureAxisZ,
+  turnCanonical,
   panelMatrixAt,
-  leafMatrixAt,
   openPages,
   pageRotation,
   transformPoint,
@@ -23,15 +24,18 @@ import {
   translation,
   creases,
 } from './falzschema.js';
+import { buildCatalogExport } from './catalog-export.js';
 
 // ---------------------------------------------------------------------------
 // Konstanten
 // ---------------------------------------------------------------------------
 
-const PAGE_W = 70; // Endformat in Darstellungseinheiten (Verhältnis DIN A)
+const PAGE_W = 70; // Endformat in Darstellungseinheiten (Verhältnis DIN A, Leseansicht)
 const PAGE_H = 99;
-// Papierstärke in der Darstellung (überzeichnet; bei vielen Bogen dünner, damit der Block nicht zum Würfel wird)
-const displayThickness = (pages) => (pages <= 32 ? 1.2 : pages <= 64 ? 0.75 : 0.5);
+const REF_WIDTH = 4 * PAGE_W; // Bezugsbreite für die automatische Zoomanpassung
+const MAX_PAGES = 256;
+// Papierstärke in der Darstellung (überzeichnet; bei vielen Blättern dünner)
+const displayThickness = (pages) => (pages <= 32 ? 1.2 : pages <= 64 ? 0.75 : pages <= 128 ? 0.5 : 0.3);
 const MM_PER_UNIT = 148 / PAGE_W; // Endformat DIN A5 (148 × 210 mm)
 const CREEP_EXAG = 4; // Verdrängung in der Darstellung 4-fach überhöht (sonst kaum sichtbar)
 const MAX_CREEP_UNITS = 8;
@@ -46,34 +50,45 @@ const COLORS = {
 };
 // Kantenfarbe je Bogen (zur Unterscheidung im zusammengetragenen Produkt)
 const SHEET_COLORS = ['#e5484d', '#f5a524', '#2da44e', '#1f6feb', '#8250df', '#d6409f', '#12a594', '#6b7684'];
+const sheetColor = (s) => SHEET_COLORS[s % SHEET_COLORS.length];
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 const ease = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 const fmtMm = (v) => `${v.toFixed(2).replace('.', ',')} mm`;
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 // ---------------------------------------------------------------------------
 // Modell
 // ---------------------------------------------------------------------------
 
-const product = { pages: 16, binding: 'saddle', caliper: 0.1 };
-let foldSettings = DEFAULT_FOLD_SETTINGS.map((f) => ({ ...f }));
-let scheme;
-let model;
+const product = {
+  pages: 16,
+  binding: 'saddle',
+  caliper: 0.1,
+  groups: [{ count: 1, scheme: 'F16-7' }],
+};
 let production;
-let CREASES;
 let BOOK_AXIS_Z = 0;
 
-function computeAll() {
-  scheme = kreuzbruch16(foldSettings);
-  model = computeScheme(scheme, { pageWidth: PAGE_W, pageHeight: PAGE_H, thickness: displayThickness(product.pages) });
-  CREASES = creases(model);
-  production = computeProduction(model, product);
-  BOOK_AXIS_Z = bookAxisZ(model, production);
-}
-computeAll();
+const sigOptions = () => ({ pageWidth: PAGE_W, pageHeight: PAGE_H, thickness: displayThickness(product.pages) });
 
-const FOLDS = model.folds.length;
-const LEAVES_PER_SHEET = model.panels.length;
+/** Berechnet die Produktion; liefert Fehlerliste (leer = übernommen). */
+function computeAll() {
+  const prod = computeProduction(product.groups, {
+    binding: product.binding,
+    caliper: product.caliper,
+    pages: product.pages,
+    ...sigOptions(),
+  });
+  if (prod.errors.length) return prod.errors;
+  production = prod;
+  BOOK_AXIS_Z = bookAxisZ(production);
+  return [];
+}
+
+const sheetOf = (s = view.sheet) => production.sheets[s];
+const sigOf = (s = view.sheet) => production.sheets[s].sig;
+const foldsOf = (s = view.sheet) => sigOf(s).folds.length;
 
 /** Verdrängung eines Bogens in Darstellungseinheiten (überhöht). */
 const creepUnits = (s) => Math.min(MAX_CREEP_UNITS, (production.sheets[s].creep / MM_PER_UNIT) * CREEP_EXAG);
@@ -86,6 +101,8 @@ function needsUnderline(n) {
   const rotated = [...s].reverse().map((c) => map[c]).join('');
   return rotated !== s && rotated[0] !== '0';
 }
+
+const invert = (m) => new THREE.Matrix4().fromArray(m).invert().toArray();
 
 // Ansicht: ein einzelner Bogen ('sheet') oder das Endprodukt ('book')
 const view = { mode: 'sheet', sheet: 0 };
@@ -102,39 +119,42 @@ const svgEl = (name, attrs = {}, parent) => {
   return el;
 };
 
-function renderSchema(svg, side) {
-  const { cols, rows } = scheme;
-  const W = cols * PAGE_W;
-  const H = rows * PAGE_H;
+/**
+ * Zeichnet eine Bogenseite: Felder mit Seitenzahl (im Feld gedreht), Kopfmarke,
+ * Bund, Satzspiegel (um die Verdrängung zum Bund verschoben) und Falzlinien.
+ */
+function renderSheetSvg(svg, sig, panels, side, { shift = 0 } = {}) {
+  const { cols, rows, cellW, cellH } = sig;
+  const W = cols * cellW;
+  const H = rows * cellH;
   const m = 20;
   svg.setAttribute('viewBox', `0 0 ${W + 2 * m} ${H + 2 * m}`);
   svg.replaceChildren();
-
-  // Bogenkoordinaten (Ursprung Mitte, y nach oben) -> SVG
   const mirror = side === 'back' ? -1 : 1;
   const sx = (x) => mirror * x + W / 2 + m;
   const sy = (y) => H / 2 - y + m;
 
-  const sheet = production.sheets[view.sheet];
-  const shift = creepUnits(view.sheet);
-  const layout = productionSheetLayout(model, sheet, side);
-  layout.forEach((line, row) => {
+  sheetLayout(sig, side, panels).forEach((line, row) => {
     line.forEach((cell, col) => {
-      const x = m + col * PAGE_W;
-      const y = m + row * PAGE_H;
-      const cx = x + PAGE_W / 2;
-      const cy = y + PAGE_H / 2;
-      svgEl('rect', { x, y, width: PAGE_W, height: PAGE_H, class: `sheet-cell ${side}` }, svg);
-      // Inhalt im Seitenkoordinatensystem (aufrecht) zeichnen, dann drehen.
+      const x = m + col * cellW;
+      const y = m + row * cellH;
+      const cx = x + cellW / 2;
+      const cy = y + cellH / 2;
+      svgEl('rect', { x, y, width: cellW, height: cellH, class: `sheet-cell ${side}` }, svg);
+      // Inhalt aufrecht (Seitenkoordinaten) um die Feldmitte zeichnen, dann drehen
+      const quarter = cell.rotation % 180 !== 0;
+      const pw = quarter ? cellH : cellW;
+      const ph = quarter ? cellW : cellH;
+      const px = cx - pw / 2;
+      const py = cy - ph / 2;
       const g = svgEl('g', { transform: `rotate(${cell.rotation} ${cx} ${cy})` }, svg);
-      // Bund: ungerade Seiten (rechte Seiten) haben den Bund links, gerade rechts.
+      // Bund: ungerade Seiten (rechte Seiten) haben den Bund links, gerade rechts
       const spineLeft = cell.page % 2 === 1;
-      svgEl('rect', { x: spineLeft ? x : x + PAGE_W - 2.5, y, width: 2.5, height: PAGE_H, class: 'spine-mark' }, g);
-      // Verdrängungsausgleich: Inhalt zum Bund hin verschieben
+      svgEl('rect', { x: spineLeft ? px : px + pw - 2.5, y: py, width: 2.5, height: ph, class: 'spine-mark' }, g);
       const content = svgEl('g', { transform: `translate(${spineLeft ? -shift : shift} 0)` }, g);
-      svgEl('rect', { x: x + 7, y: y + 13, width: PAGE_W - 14, height: PAGE_H - 22, class: 'satzspiegel' }, content);
-      svgEl('rect', { x: cx - 18, y: y + 5, width: 36, height: 4, rx: 1.5, class: 'page-head' }, content);
-      const fontSize = cell.page >= 100 ? 24 : 30;
+      svgEl('rect', { x: px + pw * 0.1, y: py + ph * 0.13, width: pw * 0.8, height: ph * 0.78, class: 'satzspiegel' }, content);
+      svgEl('rect', { x: cx - pw * 0.26, y: py + ph * 0.05, width: pw * 0.52, height: 4, rx: 1.5, class: 'page-head' }, content);
+      const fontSize = pw * (cell.page >= 100 ? 0.34 : 0.43);
       const t = svgEl('text', { x: cx, y: cy, class: 'page-no', style: `font-size:${fontSize}px` }, content);
       t.textContent = cell.page;
       if (needsUnderline(cell.page)) {
@@ -142,25 +162,30 @@ function renderSchema(svg, side) {
         svgEl('rect', { x: cx - w / 2, y: cy + fontSize / 2, width: w, height: 2, class: 'page-underline' }, content);
       }
       const title = svgEl('title', {}, g);
-      title.textContent = `Seite ${cell.page}${cell.rotation === 180 ? ' (kopfstehend)' : ''}`;
+      title.textContent = `Seite ${cell.page}${cell.rotation ? ` (um ${cell.rotation}° gedreht)` : ''}`;
     });
   });
 
   svgEl('rect', { x: m, y: m, width: W, height: H, class: 'sheet-outline' }, svg);
 
-  CREASES.forEach((segs, k) => {
-    segs.forEach(([[x1, y1], [x2, y2]], j) => {
-      svgEl('line', { x1: sx(x1), y1: sy(y1), x2: sx(x2), y2: sy(y2), class: 'crease', 'data-fold': k }, svg);
-      if (j > 0 && k !== 2) return;
-      // Nummer am Rand außerhalb des Bogens
-      const vertical = x1 === x2;
-      const lx = vertical ? sx(x1) : m / 2;
-      const ly = vertical ? m / 2 : sy(y1);
+  // Falzlinien mit Nummer des Falzschritts (Nummer am oberen bzw. linken Ende)
+  const used = new Set();
+  creases(sig).forEach((segs, k) => {
+    for (const [[x1, y1], [x2, y2]] of segs) {
+      const a = [sx(x1), sy(y1)];
+      const b = [sx(x2), sy(y2)];
+      svgEl('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], class: 'crease', 'data-fold': k }, svg);
+      const vertical = Math.abs(a[0] - b[0]) < 1e-6;
+      const end = vertical ? (a[1] < b[1] ? a : b) : a[0] < b[0] ? a : b;
+      const pos = vertical ? [end[0], end[1] - 10] : [end[0] - 10, end[1]];
+      const key = pos.map((v) => Math.round(v)).join(',');
+      if (used.has(key)) continue;
+      used.add(key);
       const g = svgEl('g', { class: 'crease-label', 'data-fold': k }, svg);
-      svgEl('circle', { cx: lx, cy: ly, r: 7 }, g);
-      const t = svgEl('text', { x: lx, y: ly }, g);
+      svgEl('circle', { cx: pos[0], cy: pos[1], r: 7 }, g);
+      const t = svgEl('text', { x: pos[0], y: pos[1] }, g);
       t.textContent = k + 1;
-    });
+    }
   });
 }
 
@@ -195,7 +220,7 @@ const sunBack = new THREE.DirectionalLight(0xffffff, 0.9);
 sunBack.position.set(-200, -150, -400);
 scene.add(sunBack);
 
-// flipGroup: Wenden (Vorder-/Rückseite); sheetGroup: hält das Objekt in der Bildmitte
+// flipGroup: Ausrichtung (Vorder-/Rückseite, Leseansicht); sheetGroup: hält das Objekt in der Bildmitte
 const flipGroup = new THREE.Group();
 const sheetGroup = new THREE.Group();
 flipGroup.add(sheetGroup);
@@ -203,10 +228,10 @@ scene.add(flipGroup);
 
 const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-function pageTexture({ page, rotation, side, shift, sheetNo, scale }) {
+function pageTexture({ page, rotation, side, shift, label, cellW, cellH, scale }) {
   const canvas = document.createElement('canvas');
-  canvas.width = PAGE_W * scale;
-  canvas.height = PAGE_H * scale;
+  canvas.width = Math.round(cellW * scale);
+  canvas.height = Math.round(cellH * scale);
   const ctx = canvas.getContext('2d');
   const w = canvas.width;
   const h = canvas.height;
@@ -244,17 +269,17 @@ function pageTexture({ page, rotation, side, shift, sheetNo, scale }) {
 
   // Seitenzahl
   ctx.fillStyle = COLORS.ink;
-  const size = page >= 100 ? 0.24 : 0.3;
-  ctx.font = `700 ${Math.round(ph * size)}px system-ui, sans-serif`;
+  const size = Math.min(ph * (page >= 100 ? 0.24 : 0.3), pw * (page >= 100 ? 0.34 : 0.43));
+  ctx.font = `700 ${Math.round(size)}px system-ui, sans-serif`;
   ctx.textBaseline = 'middle';
   ctx.fillText(String(page), 0, ph * 0.02);
   if (needsUnderline(page)) {
     const tw = ctx.measureText(String(page)).width;
-    ctx.fillRect(-tw / 2, ph * (0.02 + size / 2 + 0.01), tw, ph * 0.018);
+    ctx.fillRect(-tw / 2, ph * 0.02 + size / 2 + ph * 0.01, tw, ph * 0.018);
   }
-  ctx.font = `500 ${Math.round(ph * 0.042)}px system-ui, sans-serif`;
+  ctx.font = `500 ${Math.round(ph * 0.04)}px system-ui, sans-serif`;
   ctx.fillStyle = '#5d6878';
-  ctx.fillText(`Bogen ${sheetNo} · ${side === 'front' ? 'Schöndruck' : 'Widerdruck'}`, 0, ph * 0.36);
+  ctx.fillText(`${label} · ${side === 'front' ? 'Schöndruck' : 'Widerdruck'}`, 0, ph * 0.36);
   ctx.restore();
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -263,11 +288,18 @@ function pageTexture({ page, rotation, side, shift, sheetNo, scale }) {
   return tex;
 }
 
-const plane = new THREE.PlaneGeometry(PAGE_W, PAGE_H);
-const edges = new THREE.EdgesGeometry(plane);
-const FACE_OFFSET = 0.12; // Abstand Vorder-/Rückseite eines Blattes (kleiner als jede Lagenstärke)
+const FACE_OFFSET = 0.08; // Abstand Vorder-/Rückseite eines Blattes (kleiner als jede Lagenstärke)
 const spineStripGeometry = new THREE.PlaneGeometry(1, PAGE_H);
 const spineStripMaterial = new THREE.MeshStandardMaterial({ color: 0xf1f4f8, roughness: 0.92, side: THREE.DoubleSide });
+const geometryCache = new Map();
+function cellGeometry(w, h) {
+  const key = `${w}x${h}`;
+  if (!geometryCache.has(key)) {
+    const plane = new THREE.PlaneGeometry(w, h);
+    geometryCache.set(key, { plane, edges: new THREE.EdgesGeometry(plane) });
+  }
+  return geometryCache.get(key);
+}
 
 // leafObjects[g] = 3D-Blatt mit globaler Position g; sheetObjects[s][panelId] = dasselbe Objekt
 let leafObjects = [];
@@ -288,47 +320,37 @@ function disposeLeaves() {
 
 function buildLeaves() {
   disposeLeaves();
-  const scale = production.n <= 2 ? 6 : 4; // Texturgröße begrenzen bei vielen Bogen
-  const foreDir = foreEdgeDirection(model);
-  const final = model.matrices[FOLDS];
+  const total = production.totalLeaves;
+  const scale = total <= 32 ? 6 : total <= 96 ? 4 : 3; // Texturgröße begrenzen bei vielen Blättern
   production.sheets.forEach((sheet, s) => {
+    const sig = sheet.sig;
     const shift = creepUnits(s);
+    const { plane, edges } = cellGeometry(sig.cellW, sig.cellH);
+    const label = `Bogen ${s + 1}`;
     sheetObjects[s] = sheet.panels.map((p) => {
-      // Beschnitt-Ebene in Blattkoordinaten: Richtung Vorderschnitt
-      const m = final[p.id];
-      const foreLocal = new THREE.Vector3(m[0], m[4], m[8]).multiplyScalar(foreDir).normalize();
+      // Richtung Vorderschnitt in Blattkoordinaten (kanonisch +x)
+      const c = sig.canonical[p.id];
+      const foreLocal = new THREE.Vector3(c[0], c[4], c[8]).normalize();
       const clipPlane = new THREE.Plane();
-      const material = (map) =>
-        new THREE.MeshStandardMaterial({ map, roughness: 0.92, metalness: 0, clippingPlanes: [clipPlane] });
+      const material = (map) => new THREE.MeshStandardMaterial({ map, roughness: 0.92, metalness: 0, clippingPlanes: [clipPlane] });
+      const tex = (face, side) =>
+        pageTexture({ page: face.page, rotation: pageRotation(face.up, side), side, shift, label, cellW: sig.cellW, cellH: sig.cellH, scale });
 
       const g = new THREE.Group();
       g.matrixAutoUpdate = false;
-      const front = new THREE.Mesh(
-        plane,
-        material(
-          pageTexture({ page: p.front.page, rotation: pageRotation(p.front.up, 'front'), side: 'front', shift, sheetNo: s + 1, scale }),
-        ),
-      );
+      const front = new THREE.Mesh(plane, material(tex(p.front, 'front')));
       front.position.z = FACE_OFFSET;
       // Rückseite: Ebene um die y-Achse gewendet -> Texturkoordinate u zeigt nach -x,
       // das entspricht der Blickrichtung auf die umgeschlagene Rückseite.
-      const back = new THREE.Mesh(
-        plane,
-        material(
-          pageTexture({ page: p.back.page, rotation: pageRotation(p.back.up, 'back'), side: 'back', shift, sheetNo: s + 1, scale }),
-        ),
-      );
+      const back = new THREE.Mesh(plane, material(tex(p.back, 'back')));
       back.rotation.y = Math.PI;
       back.position.z = -FACE_OFFSET;
-      const outline = new THREE.LineSegments(
-        edges,
-        new THREE.LineBasicMaterial({ color: SHEET_COLORS[s % SHEET_COLORS.length], clippingPlanes: [clipPlane] }),
-      );
+      const outline = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: sheetColor(s), clippingPlanes: [clipPlane] }));
       // Papierstreifen am Bund: füllt bei der Verdrängung (Blatt nach außen versetzt) die Lücke zum Rücken
       const strip = new THREE.Mesh(spineStripGeometry, spineStripMaterial);
       strip.visible = false;
       g.add(front, back, outline, strip);
-      g.userData = { sheet: s, panel: p.id, leaf: p.leaf, foreLocal, clipPlane, localPlane: new THREE.Plane(), strip };
+      g.userData = { sheet: s, panel: p.id, leaf: p.leaf, w: sig.cellW, h: sig.cellH, foreLocal, clipPlane, localPlane: new THREE.Plane(), strip };
       sheetGroup.add(g);
       leafObjects[p.leaf] = g;
       return g;
@@ -356,22 +378,20 @@ const staples = [0, 1].map(() => {
   sheetGroup.add(mesh);
   return mesh;
 });
-const glue = new THREE.Mesh(
-  new THREE.BoxGeometry(2.2, PAGE_H, 1),
-  new THREE.MeshStandardMaterial({ color: 0xe9d9a8, roughness: 0.6 }),
-);
+const glue = new THREE.Mesh(new THREE.BoxGeometry(2.2, PAGE_H, 1), new THREE.MeshStandardMaterial({ color: 0xe9d9a8, roughness: 0.6 }));
 sheetGroup.add(glue);
 
 const tmpMatrix = new THREE.Matrix4();
 
-function stateBounds(matrices) {
+/** Begrenzungsquader; items = [{ m, w, h }] (Matrix und Feldgröße). */
+function bounds(items) {
   const box = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity };
-  for (const m of matrices) {
+  for (const { m, w, h } of items) {
     for (const [x, y] of [
-      [-PAGE_W / 2, -PAGE_H / 2],
-      [PAGE_W / 2, -PAGE_H / 2],
-      [PAGE_W / 2, PAGE_H / 2],
-      [-PAGE_W / 2, PAGE_H / 2],
+      [-w / 2, -h / 2],
+      [w / 2, -h / 2],
+      [w / 2, h / 2],
+      [-w / 2, h / 2],
     ]) {
       const [px, py, pz] = transformPoint(m, [x, y, 0]);
       box.minX = Math.min(box.minX, px);
@@ -387,13 +407,14 @@ function stateBounds(matrices) {
 
 function updateFoldLines(t) {
   const k = Math.floor(t);
-  if (view.mode !== 'sheet' || k >= FOLDS) {
+  if (view.mode !== 'sheet' || k >= foldsOf()) {
     foldLines.forEach((l) => (l.visible = false));
     return;
   }
-  const fold = model.folds[k];
-  const box = stateBounds(model.matrices[k]);
-  const zs = [box.maxZ + model.thickness, box.minZ - model.thickness];
+  const sig = sigOf();
+  const fold = sig.folds[k];
+  const box = bounds(sig.matrices[k].map((m) => ({ m, w: sig.cellW, h: sig.cellH })));
+  const zs = [box.maxZ + sig.thickness, box.minZ - sig.thickness];
   const width = 1.6;
   foldLines.forEach((strip, i) => {
     if (fold.orientation === 'vertical') {
@@ -412,7 +433,7 @@ function updateFoldLines(t) {
 // ---------------------------------------------------------------------------
 
 const state = {
-  // Bogenansicht: t läuft von 0 (flach) bis FOLDS (gefalzt)
+  // Bogenansicht: t läuft von 0 (flach) bis Anzahl Falze (gefalzt)
   t: 0,
   target: 0,
   playingAll: false,
@@ -420,8 +441,8 @@ const state = {
   a: 0,
   aTarget: 0,
   speed: 1,
-  flip: 0, // 0 = Vorderseite, Math.PI = Rückseite
-  flipTarget: 0,
+  side: 'front', // Vorder- oder Rückseite
+  reading: false, // Bogenansicht: in Leseansicht (Bund links, Kopf oben) gedreht
   center: new THREE.Vector3(),
   zoom: 1,
   // Blättern: book = Anzahl umgeblätterter Blätter (stetig für die Animation)
@@ -432,71 +453,76 @@ const state = {
 
 const assemblyEnd = () => production.n + 1;
 
-/** Lage aller Blätter in der Bogenansicht. */
+/** Lage der Blätter des gewählten Bogens in der Bogenansicht. */
 function sheetPose(t, book) {
-  const step = Math.min(Math.floor(t), FOLDS);
+  const sig = sigOf();
+  const n = sig.folds.length;
+  const step = Math.min(Math.floor(t), n);
   const progress = ease(t - step);
-  return model.panels.map((p, i) =>
-    step >= FOLDS && book > 0
-      ? leafMatrixAt(model, i, ease(clamp01(book - p.layer)))
-      : panelMatrixAt(model, i, step, progress),
-  );
+  if (step >= n && book > 0) {
+    // Blättern im kanonischen System, zurück in Bogenkoordinaten
+    const inv = sig.inverseCanonical ?? (sig.inverseCanonical = invert(sig.canonicalTransform));
+    const axis = signatureAxisZ(sig);
+    return sig.panels.map((p, i) => multiply(inv, turnCanonical(sig.canonical[i], ease(clamp01(book - p.layer)), axis)));
+  }
+  return sig.panels.map((p, i) => panelMatrixAt(sig, i, step, progress));
 }
 
 /**
- * Lage aller Blätter im Endprodukt in Abhängigkeit vom Fortschritt a des
- * Zusammentragens und vom Blättern. Liefert auch Heft-/Klebe- und Beschnitt-Fortschritt.
+ * Lage aller Blätter im Endprodukt (kanonisches System: Bund bei x = 0) in Abhängigkeit
+ * vom Fortschritt a des Zusammentragens und vom Blättern.
  */
 function bookPose(a, book) {
   const n = production.n;
   const saddle = production.binding === 'saddle';
-  const foreDir = foreEdgeDirection(model);
-  const half = LEAVES_PER_SHEET / 2;
   const f = clamp01(a - n); // Abschluss: Schließen / Heften / Kleben / Beschnitt
   // Sammelheftung: eingesteckte Bogen liegen aufgeschlagen (vordere Hälfte umgelegt),
   // am Ende wird das Produkt geschlossen.
   const openTurn = saddle ? 1 - ease(clamp01(f / 0.4)) : 0;
   const fasten = saddle ? ease(clamp01((f - 0.4) / 0.2)) : ease(clamp01(f / 0.6));
   const trim = saddle ? ease(clamp01((f - 0.6) / 0.4)) : 0;
-  const slotX = (i) => foreDir * (2 * PAGE_W + 30 + i * (PAGE_W + 14));
+  // Bereitstellung der gefalzten Bogen rechts neben dem Produkt (8 je Reihe)
+  const slot = (i) => [2 * PAGE_W + 40 + (i % 8) * (PAGE_W + 14), -Math.floor(i / 8) * (PAGE_H + 24)];
 
   const matrices = [];
   const trims = [];
   const protrusions = [];
   for (const leaf of production.leaves) {
     const s = leaf.sheet;
+    const sig = production.sheets[s].sig;
     const i = n - 1 - s; // Reihenfolge: innerster bzw. unterster Bogen zuerst
     const q = clamp01(a - i);
-    const base = model.matrices[FOLDS][leaf.panel];
-    const dzBook = model.viewSign * model.thickness * (leaf.layer - leaf.g);
-    const front = leaf.layer < half;
+    const base = sig.canonical[leaf.panel];
+    const dzBook = bookLeafMatrix(production, leaf)[14] - base[14];
+    const front = leaf.layer < sig.leaves / 2;
+    const [sx, sy] = slot(i);
     let m;
     if (saddle) {
       // Verdrängung: innere Bogen stehen nach dem Schließen am Vorderschnitt über
       const protrusion = creepUnits(s) * (f > 0 ? 1 - openTurn : 0);
       protrusions[leaf.g] = protrusion;
-      const local = multiply(translation(foreDir * protrusion, 0, 0), base);
+      const local = multiply(translation(protrusion, 0, 0), base);
       if (q >= 1) {
         m = multiply(translation(0, 0, dzBook), local);
-        if (front) m = turnAboutSpine(model, m, openTurn, BOOK_AXIS_Z);
+        if (front) m = turnCanonical(m, openTurn, BOOK_AXIS_Z);
       } else {
         // Bogen aufschlagen (in der Bereitstellung), dann unter die eingesteckten Bogen schieben
         const qOpen = ease(clamp01(q / 0.3));
         const qMove = ease(clamp01((q - 0.3) / 0.7));
         m = multiply(translation(0, 0, dzBook * qOpen), local);
-        if (front) m = turnAboutSpine(model, m, qOpen, BOOK_AXIS_Z);
-        const dip = -model.viewSign * 8 * Math.sin(Math.PI * qMove);
-        m = multiply(translation(slotX(i) * (1 - qMove), 0, dip), m);
+        if (front) m = turnCanonical(m, qOpen, BOOK_AXIS_Z);
+        const dip = -8 * Math.sin(Math.PI * qMove);
+        m = multiply(translation(sx * (1 - qMove), sy * (1 - qMove), dip), m);
       }
     } else if (q >= 1) {
       m = multiply(translation(0, 0, dzBook), base);
     } else {
       // Klebebindung: Bogen wird angehoben und auf den Stapel gelegt
       const e = ease(q);
-      const lift = model.viewSign * (20 + model.thickness * production.totalLeaves) * Math.sin(Math.PI * q);
-      m = multiply(translation(slotX(i) * (1 - e), 0, dzBook * e + lift), base);
+      const lift = (20 + production.thickness * production.totalLeaves) * Math.sin(Math.PI * q);
+      m = multiply(translation(sx * (1 - e), sy * (1 - e), dzBook * e + lift), base);
     }
-    if (book > 0) m = turnAboutSpine(model, m, ease(clamp01(book - leaf.g)), BOOK_AXIS_Z);
+    if (book > 0) m = turnCanonical(m, ease(clamp01(book - leaf.g)), BOOK_AXIS_Z);
     matrices[leaf.g] = m;
     trims[leaf.g] = saddle ? creepUnits(s) * trim : 0;
   }
@@ -514,17 +540,14 @@ function applyMatrices(objects, matrices) {
 function updateFastening(pose) {
   const saddle = production.binding === 'saddle';
   const show = view.mode === 'book' && pose && pose.fasten > 0;
-  const depth = model.thickness * production.totalLeaves + 2;
-  const finalBox = stateBounds(model.matrices[FOLDS]);
-  const yC = (finalBox.minY + finalBox.maxY) / 2;
-  const spineX = model.book.spineX;
+  const depth = production.thickness * production.totalLeaves + 2;
   staples.forEach((st, i) => {
     st.visible = show && saddle;
-    st.position.set(spineX, yC + (i === 0 ? 1 : -1) * PAGE_H * 0.28, BOOK_AXIS_Z);
+    st.position.set(0, PAGE_H / 2 + (i === 0 ? 1 : -1) * PAGE_H * 0.28, BOOK_AXIS_Z);
     st.scale.set(1, Math.max(0.001, pose?.fasten ?? 0), depth);
   });
   glue.visible = show && !saddle;
-  glue.position.set(spineX - foreEdgeDirection(model) * 1.1, yC, BOOK_AXIS_Z);
+  glue.position.set(-1.1, PAGE_H / 2, BOOK_AXIS_Z);
   glue.scale.set(1, 1, Math.max(0.001, depth * (pose?.fasten ?? 0)));
 }
 
@@ -538,7 +561,7 @@ function updateSpineStrips(protrusions) {
     const along = PAGE_W / 2 + w / 2;
     strip.position.set(-foreLocal.x * along, -foreLocal.y * along, 0);
     strip.rotation.z = Math.abs(foreLocal.y) > 0.5 ? Math.PI / 2 : 0;
-    strip.scale.set(w, Math.abs(foreLocal.y) > 0.5 ? PAGE_W / PAGE_H : 1, 1);
+    strip.scale.set(w, 1, 1);
   }
 }
 
@@ -546,14 +569,10 @@ function updateClipping(trims) {
   for (const obj of leafObjects) {
     const { foreLocal, clipPlane, localPlane, leaf } = obj.userData;
     const trim = trims ? trims[leaf] : 0;
-    // Behalten wird, was höchstens (Halbe Breite - Beschnitt) Richtung Vorderschnitt liegt
+    // Behalten wird, was höchstens (halbe Seitenbreite - Beschnitt) Richtung Vorderschnitt liegt
     localPlane.set(foreLocal.clone().negate(), PAGE_W / 2 - trim + (trim > 0 ? 0 : 1000));
     clipPlane.copy(localPlane).applyMatrix4(obj.matrixWorld);
   }
-}
-
-function centerOf(b) {
-  return new THREE.Vector3((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -570,6 +589,7 @@ function selectTab(tab) {
   for (const [name, btn, panel] of [
     ['anim', 'tab-anim', 'panel-anim'],
     ['schema', 'tab-schema', 'panel-schema'],
+    ['catalog', 'tab-catalog', 'panel-catalog'],
   ]) {
     $(btn).classList.toggle('active', name === tab);
     $(btn).setAttribute('aria-selected', name === tab);
@@ -579,55 +599,144 @@ function selectTab(tab) {
 }
 $('tab-anim').addEventListener('click', () => selectTab('anim'));
 $('tab-schema').addEventListener('click', () => selectTab('schema'));
+$('tab-catalog').addEventListener('click', () => selectTab('catalog'));
 
-// --- Produkt -------------------------------------------------------------------
+// --- Produkt und Bogenaufteilung -------------------------------------------------
 
-$('page-count').innerHTML = PAGE_COUNTS.map(
-  (p) => `<option value="${p}">${p} Seiten (${p / 16} ${p === 16 ? 'Bogen' : 'Bogen'})</option>`,
-).join('');
-$('page-count').value = String(product.pages);
+$('page-total').value = String(product.pages);
 $('binding').value = product.binding;
 $('caliper').value = product.caliper.toFixed(2);
 
-$('page-count').addEventListener('change', (e) => {
+$('page-total').addEventListener('change', (e) => {
   product.pages = Number(e.target.value);
-  applyProduct();
+  // Passt die bisherige Aufteilung nicht mehr, einen Vorschlag machen
+  const sum = product.groups.reduce((s, g) => s + g.count * catalogEntry(g.scheme).pages, 0);
+  if (sum !== product.pages && validTotal(product.pages)) product.groups = suggestGroups(product.pages);
+  renderGroups();
+  tryApply();
 });
 $('binding').addEventListener('change', (e) => {
   product.binding = e.target.value;
-  applyProduct();
+  renderGroups();
+  tryApply();
 });
 $('caliper').addEventListener('change', (e) => {
   const v = Number(String(e.target.value).replace(',', '.'));
   product.caliper = Number.isFinite(v) ? Math.min(0.5, Math.max(0.03, v)) : 0.1;
   e.target.value = product.caliper.toFixed(2);
-  applyProduct();
+  tryApply();
 });
 
-/** Alles neu berechnen und darstellen (nach Änderung von Produkt oder Falzrichtung). */
-function applyProduct() {
+const validTotal = (p) => Number.isInteger(p) && p >= 4 && p <= MAX_PAGES && p % 4 === 0;
+
+const schemesFor = (pages) => CIP4_CATALOG.filter((e) => e.pages === pages && !e.unsupported);
+const saddleOk = (id) => computeSignature(id, sigOptions()).saddleCompatible;
+
+function renderGroups() {
+  const box = $('groups');
+  box.replaceChildren();
+  product.groups.forEach((g, i) => {
+    const entry = catalogEntry(g.scheme);
+    const row = document.createElement('div');
+    row.className = 'group-row';
+    const pageOptions = SHEET_PAGE_COUNTS.map(
+      (p) => `<option value="${p}"${p === entry.pages ? ' selected' : ''}>${p} Seiten</option>`,
+    ).join('');
+    const schemeOptions = schemesFor(entry.pages)
+      .map((e) => {
+        const d = describeEntry(e);
+        const warn = product.binding === 'saddle' && !saddleOk(e.id) ? ' – nicht für Sammelheftung' : '';
+        return `<option value="${e.id}"${e.id === g.scheme ? ' selected' : ''} title="${escapeHtml(d.longText)}">${e.id} · ${escapeHtml(d.type)} (${escapeHtml(d.sequence)})${warn}</option>`;
+      })
+      .join('');
+    row.innerHTML = `
+      <div class="group-line">
+        <input type="number" class="g-count" min="1" max="64" value="${g.count}" aria-label="Anzahl Bogen" />
+        <span>×</span>
+        <select class="g-pages" aria-label="Seiten je Bogen">${pageOptions}</select>
+        <button class="g-del" title="Bogengruppe entfernen" aria-label="Bogengruppe entfernen">✕</button>
+      </div>
+      <select class="g-scheme" aria-label="Falzschema" title="${escapeHtml(describeEntry(entry).longText)}">${schemeOptions}</select>`;
+    row.querySelector('.g-count').addEventListener('change', (e) => {
+      g.count = Math.max(1, Math.min(64, Math.round(Number(e.target.value)) || 1));
+      e.target.value = g.count;
+      tryApply();
+    });
+    row.querySelector('.g-pages').addEventListener('change', (e) => {
+      const pages = Number(e.target.value);
+      g.scheme = DEFAULT_SCHEMES[pages] && !catalogEntry(DEFAULT_SCHEMES[pages]).unsupported ? DEFAULT_SCHEMES[pages] : schemesFor(pages)[0].id;
+      renderGroups();
+      tryApply();
+    });
+    row.querySelector('.g-scheme').addEventListener('change', (e) => {
+      g.scheme = e.target.value;
+      renderGroups();
+      tryApply();
+    });
+    row.querySelector('.g-del').addEventListener('click', () => {
+      product.groups.splice(i, 1);
+      renderGroups();
+      tryApply();
+    });
+    row.querySelector('.g-del').disabled = product.groups.length === 1;
+    box.appendChild(row);
+  });
+}
+
+$('btn-group-add').addEventListener('click', () => {
+  product.groups.push({ count: 1, scheme: 'F4-1' });
+  renderGroups();
+  tryApply();
+});
+$('btn-group-suggest').addEventListener('click', () => {
+  if (!validTotal(product.pages)) return;
+  product.groups = suggestGroups(product.pages);
+  renderGroups();
+  tryApply();
+});
+
+/** Eingaben prüfen und bei Gültigkeit übernehmen. */
+function tryApply() {
+  const status = $('group-status');
+  const sum = product.groups.reduce((s, g) => s + g.count * catalogEntry(g.scheme).pages, 0);
+  const sheets = product.groups.reduce((s, g) => s + g.count, 0);
+  const errors = [];
+  if (!validTotal(product.pages)) errors.push(`Der Seitenumfang muss ein Vielfaches von 4 zwischen 4 und ${MAX_PAGES} sein.`);
+  else errors.push(...computeAll());
+  status.classList.toggle('error', errors.length > 0);
+  if (errors.length) {
+    status.innerHTML = `Summe: ${sum} von ${product.pages} Seiten · ${sheets} Bogen<br>${errors.map(escapeHtml).join('<br>')}`;
+    return false;
+  }
+  status.textContent = `Summe: ${sum} von ${product.pages} Seiten · ${sheets} Bogen ✓`;
+  applyProduction();
+  return true;
+}
+
+/** Neu berechnete Produktion darstellen. */
+function applyProduction() {
   closeBookNow();
   state.a = state.aTarget = 0;
-  computeAll();
   view.sheet = Math.min(view.sheet, production.n - 1);
+  state.t = state.target = Math.min(state.t, foldsOf());
+  state.reading = false;
   buildLeaves();
   renderViewChips();
   renderOverview();
   renderSteps();
   renderSchemaAll();
   renderProductTexts();
-  const isDefault = foldSettings.every(
-    (f, k) => f.moving === DEFAULT_FOLD_SETTINGS[k].moving && f.direction === DEFAULT_FOLD_SETTINGS[k].direction,
-  );
-  $('btn-fold-default').disabled = isDefault;
+}
+
+function groupSummary() {
+  return product.groups.map((g) => `${g.count}×${g.scheme}`).join(' + ');
 }
 
 function renderProductTexts() {
   const { n, pages, binding } = production;
-  const bindingName = BINDINGS[binding];
-  $('subtitle').textContent = `${pages} Seiten · ${n} ${n === 1 ? 'Druckbogen' : 'Druckbogen'} à 16 Seiten · ${bindingName} · 3-Bruch-Kreuzbruch`;
+  $('subtitle').textContent = `${pages} Seiten · ${n} Druckbogen (${groupSummary()}) · ${BINDINGS[binding]}`;
   $('caliper-field').hidden = binding !== 'saddle';
-  const maxCreep = production.sheets[n - 1].creep;
+  const maxCreep = Math.max(...production.sheets.map((s) => s.creep));
   $('product-info').textContent =
     binding === 'saddle'
       ? `${n} Bogen werden ineinandergesteckt und am Rücken geheftet. Verdrängung: 0 bis ${fmtMm(maxCreep)} (innerster Bogen).`
@@ -642,31 +751,23 @@ function renderProductTexts() {
 
 // --- Ansicht: Bogen / Endprodukt ------------------------------------------------
 
-function renderSchemaChips() {
-  const chips = $('schema-chips');
-  chips.replaceChildren();
-  production.sheets.forEach((sheet, s) => {
-    const b = document.createElement('button');
-    b.innerHTML = `<i class="dot" style="background:${SHEET_COLORS[s % SHEET_COLORS.length]}"></i>Bogen ${s + 1}`;
-    b.title = `Seiten ${sheet.pageRanges}`;
-    b.classList.toggle('active', view.sheet === s);
-    b.addEventListener('click', () => selectView(view.mode === 'book' ? 'book' : 'sheet', s));
-    chips.appendChild(b);
-  });
+function chipButton(s, active, onClick) {
+  const b = document.createElement('button');
+  const sheet = production.sheets[s];
+  b.innerHTML = `<i class="dot" style="background:${sheetColor(s)}"></i>Bogen ${s + 1} <small>${sheet.scheme}</small>`;
+  b.title = `Bogen ${s + 1} (${sheet.scheme}): Seiten ${sheet.pageRanges}`;
+  b.classList.toggle('active', active);
+  b.addEventListener('click', onClick);
+  return b;
 }
 
 function renderViewChips() {
-  renderSchemaChips();
+  const schemaChips = $('schema-chips');
+  schemaChips.replaceChildren(
+    ...production.sheets.map((_, s) => chipButton(s, view.sheet === s, () => selectView(view.mode === 'book' ? 'book' : 'sheet', s))),
+  );
   const chips = $('view-chips');
-  chips.replaceChildren();
-  production.sheets.forEach((sheet, s) => {
-    const b = document.createElement('button');
-    b.innerHTML = `<i class="dot" style="background:${SHEET_COLORS[s % SHEET_COLORS.length]}"></i>Bogen ${s + 1}`;
-    b.title = `Bogen ${s + 1}: Seiten ${sheet.pageRanges}`;
-    b.classList.toggle('active', view.mode === 'sheet' && view.sheet === s);
-    b.addEventListener('click', () => selectView('sheet', s));
-    chips.appendChild(b);
-  });
+  chips.replaceChildren(...production.sheets.map((_, s) => chipButton(s, view.mode === 'sheet' && view.sheet === s, () => selectView('sheet', s))));
   const b = document.createElement('button');
   b.className = 'product';
   b.textContent = production.n > 1 ? 'Endprodukt (zusammentragen)' : 'Endprodukt';
@@ -680,30 +781,39 @@ function selectView(mode, sheet = view.sheet) {
   const changed = mode !== view.mode || (mode === 'sheet' && sheet !== view.sheet);
   view.mode = mode;
   view.sheet = sheet;
-  if (changed) closeBookNow();
+  if (changed) {
+    closeBookNow();
+    state.reading = false;
+    state.t = state.target = Math.min(state.t, foldsOf());
+  }
   $('sheet-controls').hidden = mode !== 'sheet';
   $('book-controls').hidden = mode !== 'book';
   $('sheet-label').textContent = `Bogen ${sheet + 1}`;
   renderViewChips();
   renderOverview();
+  renderSteps();
   renderSchemaAll();
 }
 
 function renderSchemaAll() {
-  renderSchema(schemaFront, 'front');
-  renderSchema(schemaBack, 'back');
-  const sheet = production.sheets[view.sheet];
-  $('schema-title').textContent = `Ausschuss Bogen ${view.sheet + 1} von ${production.n} – Seiten ${sheet.pageRanges}`;
+  const sheet = sheetOf();
+  const opts = { shift: creepUnits(view.sheet) };
+  renderSheetSvg(schemaFront, sheet.sig, sheet.panels, 'front', opts);
+  renderSheetSvg(schemaBack, sheet.sig, sheet.panels, 'back', opts);
+  $('schema-title').textContent = `Ausschuss Bogen ${view.sheet + 1} von ${production.n} (${sheet.scheme}) – Seiten ${sheet.pageRanges}`;
   const note = $('schema-creep');
+  const parts = [escapeHtml(describeEntry(sheet.sig.entry).longText)];
+  if (sheet.sig.bindingBottom) parts.push('Bund waagrecht: die Seiten stehen im Feld um 90° gedreht.');
   if (production.binding === 'saddle' && production.n > 1) {
-    note.hidden = false;
-    note.innerHTML =
+    parts.push(
       sheet.creep > 0
-        ? `Verdrängung: Seiteninhalt um <strong>${fmtMm(sheet.creep)}</strong> zum Bund verschoben (Darstellung ${CREEP_EXAG}-fach überhöht). Der violette Streifen markiert den Bund jeder Seite.`
-        : 'Verdrängung: 0 mm – Bogen 1 liegt außen. Innere Bogen werden zum Bund hin verschoben. Der violette Streifen markiert den Bund jeder Seite.';
-  } else {
-    note.hidden = true;
+        ? `Verdrängung: Seiteninhalt um <strong>${fmtMm(sheet.creep)}</strong> zum Bund verschoben (Darstellung ${CREEP_EXAG}-fach überhöht).`
+        : 'Verdrängung: 0 mm – Bogen 1 liegt außen.',
+    );
   }
+  parts.push('Der violette Streifen markiert den Bund jeder Seite.');
+  note.hidden = false;
+  note.innerHTML = parts.join(' ');
 }
 
 function renderOverview() {
@@ -721,7 +831,8 @@ function renderOverview() {
           ? 'innen (Mitte)'
           : `${s + 1}. von außen`
       : `${s + 1}. im Stapel`;
-    tr.innerHTML = `<td><i class="dot" style="background:${SHEET_COLORS[s % SHEET_COLORS.length]}"></i>Bogen ${s + 1}</td>
+    tr.innerHTML = `<td><i class="dot" style="background:${sheetColor(s)}"></i>Bogen ${s + 1}</td>
+      <td title="${escapeHtml(describeEntry(sheet.sig.entry).longText)}">${sheet.scheme}</td>
       <td>${sheet.pageRanges}</td><td>${position}</td><td>${saddle ? fmtMm(sheet.creep) : '–'}</td>`;
     tr.classList.toggle('active', view.sheet === s);
     tr.title = 'Bogen anzeigen';
@@ -730,53 +841,33 @@ function renderOverview() {
   });
 }
 
-// --- Falzschritte ---------------------------------------------------------------
+// --- Falzschritte (aus dem CIP4-Katalog) -----------------------------------------
 
 const stepsEl = $('steps');
 
-function optionsHtml(options, selected) {
-  return options
-    .map(([value, text]) => `<option value="${value}"${value === selected ? ' selected' : ''}>${text}</option>`)
-    .join('');
-}
-
 function renderSteps() {
+  const sheet = sheetOf();
+  const entry = sheet.sig.entry;
+  $('steps-scheme').textContent = entry.id;
+  $('steps-intro').textContent = `${describeEntry(entry).longText}. Falzfolge laut CIP4-Katalog:`;
   stepsEl.replaceChildren();
-  // scheme.folds: Einstellungen (model.folds[k].moving ist dagegen die Liste der bewegten Felder)
-  scheme.folds.forEach((fold, k) => {
+  entry.folds.forEach((fold, k) => {
     const li = document.createElement('li');
-    li.title = `Bis einschließlich ${fold.name} falzen`;
-    const halves = ['negative', 'positive'].map((m) => [m, halfName(fold.orientation, m)]);
-    const dirs = ['down', 'up'].map((d) => [d, directionName(d)]);
-    li.innerHTML = `<strong>${fold.name}</strong><span>${fold.label}</span>
-      <div class="fold-opts">
-        <select data-field="moving" aria-label="${fold.name}: bewegte Hälfte">${optionsHtml(halves, fold.moving)}</select>
-        <select data-field="direction" aria-label="${fold.name}: Richtung">${optionsHtml(dirs, fold.direction)}</select>
-      </div>`;
-    li.addEventListener('click', (e) => {
-      if (e.target.closest('.fold-opts')) return;
-      goTo(k + 1);
-    });
-    li.querySelectorAll('select').forEach((sel) =>
-      sel.addEventListener('change', () => {
-        foldSettings[k] = { ...foldSettings[k], [sel.dataset.field]: sel.value };
-        applyProduct();
-      }),
-    );
+    li.title = `Bis einschließlich ${k + 1}. Falz falzen`;
+    li.innerHTML = `<strong>${k + 1}. Falz ${fold.direction === 'over' ? '↑' : '↓'}</strong><span>${escapeHtml(foldText(fold))}</span>`;
+    li.addEventListener('click', () => goTo(k + 1));
     stepsEl.appendChild(li);
   });
+  if (!entry.folds.length) stepsEl.innerHTML = '<li class="done"><strong>Kein Falz</strong><span>Einzelblatt</span></li>';
+  $('scrub').max = String(Math.max(0.001, entry.folds.length));
+  $('scrub').disabled = entry.folds.length === 0;
 }
-
-$('btn-fold-default').addEventListener('click', () => {
-  foldSettings = DEFAULT_FOLD_SETTINGS.map((f) => ({ ...f }));
-  applyProduct();
-});
 
 // --- Falzanimation --------------------------------------------------------------
 
 function goTo(target) {
   state.playingAll = false;
-  state.target = Math.max(0, Math.min(FOLDS, target));
+  state.target = Math.max(0, Math.min(foldsOf(), target));
 }
 
 $('btn-next').addEventListener('click', () => goTo(Math.floor(state.target + 1e-6) + 1));
@@ -785,6 +876,7 @@ $('btn-reset').addEventListener('click', () => {
   goTo(0);
   state.t = 0;
   closeBookNow();
+  state.reading = false;
 });
 $('btn-play').addEventListener('click', () => {
   if (state.playingAll) {
@@ -792,17 +884,19 @@ $('btn-play').addEventListener('click', () => {
     state.target = state.t;
     return;
   }
-  if (state.t >= FOLDS - 1e-6) {
+  if (state.t >= foldsOf() - 1e-6) {
     state.t = 0;
     closeBookNow();
+    state.reading = false;
   }
-  state.target = FOLDS;
+  state.target = foldsOf();
   state.playingAll = true;
 });
 $('scrub').addEventListener('input', (e) => {
   state.playingAll = false;
   state.t = state.target = Number(e.target.value);
   closeBookNow();
+  state.reading = false;
 });
 $('speed').addEventListener('change', (e) => (state.speed = Number(e.target.value)));
 
@@ -829,10 +923,10 @@ $('asm-scrub').addEventListener('input', (e) => {
   state.a = state.aTarget = Number(e.target.value);
 });
 
-// --- Seite / Kamera -------------------------------------------------------------
+// --- Seite / Ausrichtung / Kamera ---------------------------------------------------
 
 function setSide(side) {
-  state.flipTarget = side === 'back' ? Math.PI : 0;
+  state.side = side;
   $('btn-front').classList.toggle('active', side === 'front');
   $('btn-back').classList.toggle('active', side === 'back');
   $('btn-front').setAttribute('aria-pressed', side === 'front');
@@ -840,6 +934,18 @@ function setSide(side) {
 }
 $('btn-front').addEventListener('click', () => setSide('front'));
 $('btn-back').addEventListener('click', () => setSide('back'));
+
+const flipQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+const targetQuat = new THREE.Quaternion();
+/** Zielausrichtung: Leseansicht (Bogen gedreht, Bund links, Kopf oben) und Vorder-/Rückseite. */
+function orientationTarget() {
+  targetQuat.identity();
+  if (view.mode === 'sheet' && state.reading) {
+    targetQuat.setFromRotationMatrix(new THREE.Matrix4().fromArray(sigOf().readerRotation));
+  }
+  if (state.side === 'back') targetQuat.premultiply(flipQuat);
+  return targetQuat;
+}
 
 $('btn-camera').addEventListener('click', () => {
   state.cameraTarget = null;
@@ -851,7 +957,7 @@ controls.addEventListener('start', () => (state.cameraTarget = null));
 
 // --- Blättern ---------------------------------------------------------------
 
-const leafCount = () => (view.mode === 'book' ? production.totalLeaves : LEAVES_PER_SHEET);
+const leafCount = () => (view.mode === 'book' ? production.totalLeaves : sigOf().leaves);
 
 /** Kann geblättert werden? (Bogen fertig gefalzt bzw. Produkt fertig) */
 function canBrowse() {
@@ -859,7 +965,7 @@ function canBrowse() {
     const end = assemblyEnd();
     return state.a >= end - 1e-6 && state.aTarget >= end - 1e-6;
   }
-  return state.t >= FOLDS - 1e-6 && state.target >= FOLDS - 1e-6;
+  return state.t >= foldsOf() - 1e-6 && state.target >= foldsOf() - 1e-6;
 }
 const isBrowsing = () => canBrowse() && (state.book > 1e-6 || state.bookTarget > 0);
 
@@ -871,8 +977,9 @@ function turnTo(target) {
   if (!canBrowse()) return;
   const k = Math.max(0, Math.min(leafCount(), target));
   if (k > 0 && !isBrowsing()) {
-    // Beim Aufschlagen in die Leseansicht wechseln (Seite 1 zum Betrachter)
-    setSide(model.viewSign > 0 ? 'front' : 'back');
+    // Beim Aufschlagen in die Leseansicht wechseln: Bund links, Kopf oben, Seite 1 zum Betrachter
+    state.reading = true;
+    setSide('front');
     state.cameraTarget = READING_CAMERA.clone();
     controls.target.set(0, 0, 0);
   }
@@ -880,15 +987,14 @@ function turnTo(target) {
 }
 const currentLeaf = () => Math.round(state.bookTarget);
 
-/** Aufgeschlagene Seiten nach k umgeblätterten Blättern (globale Seitenzahlen). */
+/** Aufgeschlagene Seiten nach k umgeblätterten Blättern (Seitenzahlen im Produkt). */
 function visiblePages(k) {
-  if (view.mode === 'book') return openPages(model, k, production.totalLeaves);
-  // Einzelner Bogen: Blatt in Lage L hat die globale Position leaf
-  const sheet = production.sheets[view.sheet];
+  if (view.mode === 'book') return openPages(k, production.totalLeaves);
+  const sheet = sheetOf();
   const leafOfLayer = (L) => sheet.panels.find((p) => p.layer === L).leaf;
   return {
     left: k > 0 ? 2 * leafOfLayer(k - 1) + 2 : null,
-    right: k < LEAVES_PER_SHEET ? 2 * leafOfLayer(k) + 1 : null,
+    right: k < sheet.sig.leaves ? 2 * leafOfLayer(k) + 1 : null,
   };
 }
 
@@ -918,17 +1024,14 @@ renderer.domElement.addEventListener('pointerdown', (e) => pointerDown.set(e.cli
 renderer.domElement.addEventListener('pointerup', (e) => {
   if (!canBrowse() || pointerDown.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) > 5) return;
   const rect = renderer.domElement.getBoundingClientRect();
-  const ndc = new THREE.Vector2(
-    ((e.clientX - rect.left) / rect.width) * 2 - 1,
-    -((e.clientY - rect.top) / rect.height) * 2 + 1,
-  );
+  const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
-  const visible = leafObjects.filter((o) => o.visible);
-  const hit = raycaster.intersectObjects(visible, true).find((h) => h.object.isMesh);
+  const hit = raycaster.intersectObjects(leafObjects.filter((o) => o.visible), true).find((h) => h.object.isMesh);
   if (!hit) return;
   const local = sheetGroup.worldToLocal(hit.point.clone());
-  const forward = (local.x - model.book.spineX) * foreEdgeDirection(model) > 0;
-  turnTo(currentLeaf() + (forward ? 1 : -1));
+  // in das kanonische System (Bund bei x = 0) umrechnen
+  const p = view.mode === 'book' ? [local.x, local.y, local.z] : transformPoint(sigOf().canonicalTransform, [local.x, local.y, local.z]);
+  turnTo(currentLeaf() + (p[0] > 0 ? 1 : -1));
 });
 
 // --- Anzeige --------------------------------------------------------------------
@@ -938,27 +1041,29 @@ function updateUi(pose) {
   const n = production.n;
 
   if (view.mode === 'sheet') {
-    const active = t < FOLDS ? Math.floor(t) : -1;
-    [...stepsEl.children].forEach((li, k) => {
-      li.classList.toggle('done', t >= k + 1 - 1e-6);
-      li.classList.toggle('active', k === active && t > k + 1e-6);
-    });
+    const sig = sigOf();
+    const folds = sig.folds.length;
+    const active = t < folds ? Math.floor(t) : -1;
+    if (folds) {
+      [...stepsEl.children].forEach((li, k) => {
+        li.classList.toggle('done', t >= k + 1 - 1e-6);
+        li.classList.toggle('active', k === active && t > k + 1e-6);
+      });
+    }
     const moving = Math.abs(state.target - t) > 1e-6;
     let text;
-    if (t <= 1e-6) text = `Flacher Druckbogen ${view.sheet + 1} – 16 Seiten auf 8 Feldern je Seite.`;
+    if (t <= 1e-6 && folds) text = `Flacher Druckbogen ${view.sheet + 1} (${sig.id}) – ${sig.entry.pages} Seiten auf ${sig.leaves} Feldern je Seite.`;
     else if (state.target < t && state.book > 1e-6) text = 'Bogen wird zugeklappt …';
-    else if (t >= FOLDS - 1e-6 && isBrowsing()) text = 'Blättern im gefalzten Bogen (gedanklich an Kopf und Vorderschnitt beschnitten).';
-    else if (t >= FOLDS - 1e-6)
-      text =
-        model.viewSign > 0
-          ? 'Fertig gefalzt: 8 Blätter = 16 Seiten. Bund links, Kopf oben.'
-          : 'Fertig gefalzt. Die erste Seite des Bogens liegt hinten – Ansicht „Rückseite“ zeigt sie mit Bund links.';
-    else if (moving) text = `${model.folds[Math.floor(t)].name} läuft …`;
-    else text = `Angehalten in ${model.folds[Math.floor(t)].name}.`;
+    else if (t >= folds - 1e-6 && isBrowsing()) text = 'Blättern im gefalzten Bogen (Leseansicht: Bund links, Kopf oben; gedanklich beschnitten).';
+    else if (t >= folds - 1e-6)
+      text = `Fertig gefalzt: ${sig.leaves} ${sig.leaves === 1 ? 'Blatt' : 'Blätter'} = ${sig.entry.pages} Seiten. Beim Blättern wird in die Leseansicht gedreht.`;
+    else if (moving) text = `${Math.floor(t) + 1}. Falz läuft …`;
+    else text = `Angehalten im ${Math.floor(t) + 1}. Falz.`;
     $('status').textContent = text;
     $('btn-play').textContent = state.playingAll ? '⏸ Anhalten' : '▶ Alle Falze abspielen';
     $('btn-prev').disabled = state.target <= 1e-6;
-    $('btn-next').disabled = state.target >= FOLDS - 1e-6;
+    $('btn-next').disabled = state.target >= folds - 1e-6;
+    $('btn-play').disabled = folds === 0;
     $('scrub').value = t;
   } else {
     const a = state.a;
@@ -969,8 +1074,8 @@ function updateUi(pose) {
     else if (a < n) {
       const s = n - 1 - Math.floor(a);
       text = saddle
-        ? `Bogen ${s + 1} wird aufgeschlagen und ${s === n - 1 ? 'auf den Sammelsattel gelegt' : 'um die inneren Bogen gelegt'} …`
-        : `Bogen ${s + 1} wird ${s === n - 1 ? 'als unterster Bogen abgelegt' : 'auf den Stapel gelegt'} …`;
+        ? `Bogen ${s + 1} (${sheetOf(s).scheme}) wird aufgeschlagen und ${s === n - 1 ? 'auf den Sammelsattel gelegt' : 'um die inneren Bogen gelegt'} …`
+        : `Bogen ${s + 1} (${sheetOf(s).scheme}) wird ${s === n - 1 ? 'als unterster Bogen abgelegt' : 'auf den Stapel gelegt'} …`;
     } else if (a < end - 1e-6) {
       const f = pose?.f ?? 0;
       if (saddle) {
@@ -980,9 +1085,7 @@ function updateUi(pose) {
       } else text = 'Rücken wird gefräst und verklebt …';
     } else
       text = `Fertig: ${production.pages} Seiten aus ${n} Bogen, ${BINDINGS[production.binding]}. ${
-        saddle && n > 1
-          ? 'Dank Verdrängungsausgleich steht der Inhalt nach dem Beschnitt auf allen Seiten gleich.'
-          : ''
+        saddle && n > 1 ? 'Dank Verdrängungsausgleich steht der Inhalt nach dem Beschnitt auf allen Seiten gleich.' : ''
       }`;
     $('assembly-status').textContent = text;
     const running = Math.abs(state.aTarget - a) > 1e-6;
@@ -997,10 +1100,9 @@ function updateUi(pose) {
   $('browse-title').textContent = view.mode === 'book' ? 'Blättern im Endprodukt' : `Blättern im Bogen ${view.sheet + 1}`;
   if (browse) {
     const { left, right } = visiblePages(leaf);
-    pagesEl.textContent =
-      left === null ? `Vorne: Seite ${right}` : right === null ? `Hinten: Seite ${left}` : `Seite ${left} | ${right}`;
+    pagesEl.textContent = left === null ? `Vorne: Seite ${right}` : right === null ? `Hinten: Seite ${left}` : `Seite ${left} | ${right}`;
   } else {
-    pagesEl.textContent = view.mode === 'book' ? 'erst nach dem Zusammentragen' : 'erst nach dem 3. Falz';
+    pagesEl.textContent = view.mode === 'book' ? 'erst nach dem Zusammentragen' : 'erst nach dem letzten Falz';
   }
   pagesEl.classList.toggle('disabled', !browse);
   $('btn-page-prev').disabled = !browse || leaf <= 0;
@@ -1014,11 +1116,99 @@ function updateUi(pose) {
       : 'Zuerst alle Falze ausführen.';
 
   // Im Schema den nächsten bzw. laufenden Falz hervorheben
-  const highlight = view.mode === 'sheet' && t < FOLDS ? Math.floor(t) : -1;
-  document.querySelectorAll('[data-fold]').forEach((el) => {
+  const highlight = view.mode === 'sheet' && t < foldsOf() ? Math.floor(t) : -1;
+  document.querySelectorAll('#panel-schema [data-fold]').forEach((el) => {
     el.classList.toggle('active', Number(el.dataset.fold) === highlight);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Register „CIP4-Falzkatalog“
+// ---------------------------------------------------------------------------
+
+let catalogSelected = 'F16-7';
+
+function renderCatalogFilter() {
+  const counts = [...new Set(CIP4_CATALOG.map((e) => e.pages))].sort((a, b) => a - b);
+  $('catalog-filter').innerHTML = `<option value="">alle</option>${counts.map((p) => `<option value="${p}">${p}</option>`).join('')}`;
+}
+
+function renderCatalogTable() {
+  const filter = Number($('catalog-filter').value) || 0;
+  const tbody = $('catalog-rows');
+  tbody.replaceChildren();
+  for (const entry of CIP4_CATALOG) {
+    if (filter && entry.pages !== filter) continue;
+    const d = describeEntry(entry);
+    const tr = document.createElement('tr');
+    const saddle = entry.unsupported ? '–' : computeSignature(entry, sigOptions()).saddleCompatible ? '✓' : '–';
+    tr.innerHTML = `<td><strong>${entry.id}</strong></td><td>${escapeHtml(entry.unsupported ? `nicht unterstützt (${entry.unsupported})` : d.type)}</td>
+      <td>${entry.pages}</td><td>${entry.cols}×${entry.rows}</td><td>${entry.folds.length}</td>
+      <td class="seq">${escapeHtml(d.sequence)}</td><td>${saddle}</td>`;
+    tr.classList.toggle('unsupported', !!entry.unsupported);
+    tr.classList.toggle('active', entry.id === catalogSelected);
+    tr.title = d.longText;
+    tr.addEventListener('click', () => {
+      catalogSelected = entry.id;
+      renderCatalogTable();
+      renderCatalogDetail();
+    });
+    tbody.appendChild(tr);
+  }
+}
+
+function renderCatalogDetail() {
+  const entry = catalogEntry(catalogSelected);
+  const d = describeEntry(entry);
+  const box = $('catalog-detail');
+  if (entry.unsupported) {
+    box.innerHTML = `<h3>${entry.id}</h3><p>${escapeHtml(d.longText)}</p>
+      <p class="hint">Im CIP4-Katalog als nicht unterstützt markiert (${escapeHtml(entry.unsupported)}) – ohne Ausschuss-Diagramm.</p>`;
+    return;
+  }
+  const sig = computeSignature(entry, sigOptions());
+  box.innerHTML = `
+    <h3>${entry.id}</h3>
+    <p class="long">${escapeHtml(d.longText)}</p>
+    <dl class="facts">
+      <dt>Seiten</dt><dd>${entry.pages} (${sig.leaves} ${sig.leaves === 1 ? 'Blatt' : 'Blätter'})</dd>
+      <dt>Raster</dt><dd>${entry.cols} nebeneinander × ${entry.rows} übereinander</dd>
+      <dt>Falze</dt><dd>${entry.folds.length}</dd>
+      <dt>Bund</dt><dd>${entry.folds.length ? (sig.bindingBottom ? 'waagrecht (Seiten im Feld um 90° gedreht)' : 'senkrecht') : '–'}</dd>
+      <dt>Sammelheftung</dt><dd>${sig.saddleCompatible ? 'geeignet' : 'nicht geeignet'}</dd>
+    </dl>
+    <ol class="fold-list">${entry.folds.map((f) => `<li>${f.direction === 'over' ? '↑' : '↓'} ${escapeHtml(foldText(f))}</li>`).join('') || '<li>kein Falz</li>'}</ol>
+    <figure><svg id="cat-front" role="img" aria-label="Vorderseite"></svg><figcaption>Vorderseite</figcaption></figure>
+    <figure><svg id="cat-back" role="img" aria-label="Rückseite"></svg><figcaption>Rückseite (umgeschlagen)</figcaption></figure>
+    <button id="btn-catalog-use" class="primary">Als Produkt übernehmen und falzen</button>`;
+  renderSheetSvg($('cat-front'), sig, sig.panels, 'front');
+  renderSheetSvg($('cat-back'), sig, sig.panels, 'back');
+  $('btn-catalog-use').addEventListener('click', () => {
+    product.pages = entry.pages;
+    product.groups = [{ count: 1, scheme: entry.id }];
+    if (product.binding === 'saddle' && !sig.saddleCompatible) product.binding = 'perfect';
+    $('page-total').value = String(product.pages);
+    $('binding').value = product.binding;
+    renderGroups();
+    if (tryApply()) {
+      selectView('sheet', 0);
+      state.t = state.target = 0;
+      selectTab('anim');
+    }
+  });
+}
+
+$('catalog-filter').addEventListener('change', renderCatalogTable);
+$('btn-catalog-json').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(buildCatalogExport(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'cip4-falzkatalog.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
 
 // ---------------------------------------------------------------------------
 // Render-Schleife
@@ -1064,8 +1254,10 @@ function frame() {
   let pose = null;
   if (view.mode === 'sheet') {
     if (state.book <= 1e-6) {
-      if (Math.abs(state.target - state.t) > 1e-6) state.t = approach(state.t, state.target, (dt * state.speed) / FOLD_SECONDS);
-      else state.playingAll = false;
+      if (Math.abs(state.target - state.t) > 1e-6) {
+        state.t = approach(state.t, state.target, (dt * state.speed) / FOLD_SECONDS);
+        if (state.t < foldsOf() - 1e-6) state.reading = false; // beim Auffalzen wieder in Bogenlage
+      } else state.playingAll = false;
     }
     objects = sheetObjects[view.sheet];
     matrices = sheetPose(state.t, state.book);
@@ -1086,22 +1278,20 @@ function frame() {
   updateSpineStrips(pose?.protrusions);
 
   // Objekt in der Bildmitte halten (sanft nachführen) und passend zoomen
-  const box = stateBounds(matrices);
-  const c = centerOf(box);
+  const box = bounds(objects.map((o, i) => ({ m: matrices[i], w: o.userData.w, h: o.userData.h })));
+  const c = new THREE.Vector3((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, (box.minZ + box.maxZ) / 2);
   if (first) state.center.copy(c);
   else state.center.lerp(c, 1 - Math.exp(-dt * 4));
   sheetGroup.position.copy(state.center).multiplyScalar(-1);
-  const extent = Math.max(box.maxX - box.minX, (box.maxY - box.minY) * 1.4);
-  // Kleiner als der Bogen: behutsam heranzoomen; größer (Bogenreihe beim Zusammentragen): ganz einpassen
-  const ratio = (scheme.cols * PAGE_W) / extent;
-  const zoomTarget = ratio < 1 ? ratio * 0.85 : Math.min(2.2, Math.sqrt(ratio));
+  const extent = Math.max(box.maxX - box.minX, box.maxY - box.minY) * 1.05;
+  // Kleiner als die Bezugsbreite: behutsam heranzoomen; größer: ganz einpassen
+  const ratio = REF_WIDTH / extent;
+  const zoomTarget = ratio < 1 ? ratio * 0.9 : Math.min(2.2, Math.sqrt(ratio));
   state.zoom = first ? zoomTarget : state.zoom + (zoomTarget - state.zoom) * (1 - Math.exp(-dt * 3));
   flipGroup.scale.setScalar(state.zoom);
 
-  // Wenden
-  state.flip += (state.flipTarget - state.flip) * (1 - Math.exp(-dt * 5));
-  if (Math.abs(state.flipTarget - state.flip) < 1e-4) state.flip = state.flipTarget;
-  flipGroup.rotation.y = state.flip;
+  // Ausrichtung (Vorder-/Rückseite, Leseansicht) sanft nachführen
+  flipGroup.quaternion.slerp(orientationTarget(), first ? 1 : 1 - Math.exp(-dt * 5));
 
   // Automatische Kamerafahrt (z. B. in die Leseansicht)
   if (state.cameraTarget) {
@@ -1119,15 +1309,16 @@ function frame() {
 }
 
 // Start
-applyProduct();
+renderGroups();
+tryApply();
 selectView('sheet', 0);
+renderCatalogFilter();
+renderCatalogTable();
+renderCatalogDetail();
 requestAnimationFrame(frame);
 
 // Für Tests / Debugging
 window.falzschema = {
-  get model() {
-    return model;
-  },
   get production() {
     return production;
   },
@@ -1140,13 +1331,10 @@ window.falzschema = {
   selectTab,
   setProduct(p) {
     Object.assign(product, p);
-    $('page-count').value = String(product.pages);
+    $('page-total').value = String(product.pages);
     $('binding').value = product.binding;
     $('caliper').value = product.caliper.toFixed(2);
-    applyProduct();
-  },
-  setFold(k, settings) {
-    foldSettings[k] = { ...foldSettings[k], ...settings };
-    applyProduct();
+    renderGroups();
+    return tryApply();
   },
 };

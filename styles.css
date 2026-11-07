@@ -580,3 +580,167 @@ table.overview .dot {
   fill: #8250df;
   opacity: 0.55;
 }
+
+/* --- Bogenaufteilung ------------------------------------------------------ */
+.groups {
+  display: grid;
+  gap: 8px;
+}
+.group-row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  background: #fafbfc;
+}
+.group-line {
+  display: grid;
+  grid-template-columns: 64px auto 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+.group-line input {
+  width: 100%;
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.group-line .g-del {
+  padding: 5px 9px;
+}
+.g-scheme,
+.g-pages {
+  width: 100%;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+.group-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.group-status {
+  margin: 8px 0 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #2da44e;
+}
+.group-status.error {
+  color: var(--fold);
+}
+.chips button small {
+  opacity: 0.75;
+  font-size: 0.75rem;
+}
+
+/* --- CIP4-Falzkatalog ----------------------------------------------------- */
+.catalog {
+  max-width: 1500px;
+  margin: 0 auto;
+}
+.catalog-head {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.catalog-head > div:first-child {
+  flex: 1 1 420px;
+}
+.catalog-tools {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.field.compact {
+  grid-template-columns: auto auto;
+  margin: 0;
+}
+.catalog-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 400px);
+  gap: 16px;
+  margin-top: 12px;
+}
+.catalog-table td.seq {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.catalog-table tr.unsupported td {
+  color: var(--muted);
+  font-style: italic;
+}
+.catalog-detail {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  align-self: start;
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+.catalog-detail h3 {
+  margin: 0 0 4px;
+  font-size: 1.2rem;
+}
+.catalog-detail .long {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+.catalog-detail .facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+}
+.catalog-detail dt {
+  color: var(--muted);
+}
+.catalog-detail dd {
+  margin: 0;
+}
+.catalog-detail .fold-list {
+  padding-left: 20px;
+  margin: 0 0 10px;
+  font-size: 0.88rem;
+}
+.catalog-detail figure svg {
+  max-height: 240px;
+}
+.catalog-detail button {
+  width: 100%;
+  margin-top: 8px;
+}
+
+@media (max-width: 860px) {
+  .catalog-body {
+    grid-template-columns: 1fr;
+  }
+  .catalog-detail {
+    position: static;
+  }
+  .catalog-table th:nth-child(2),
+  .catalog-table td:nth-child(2),
+  .catalog-table th:nth-child(4),
+  .catalog-table td:nth-child(4),
+  .catalog-table th:nth-child(5),
+  .catalog-table td:nth-child(5) {
+    display: none;
+  }
+  .catalog-table td.seq {
+    white-space: normal;
+  }
+  .catalog-head > div:first-child {
+    flex-basis: 100%;
+  }
+}
+.catalog-table td:first-child {
+  white-space: nowrap;
+}
+.catalog-table-wrap {
+  overflow-x: auto;
+}

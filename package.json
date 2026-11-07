@@ -7,7 +7,8 @@
   "scripts": {
     "start": "python3 -m http.server 8000",
     "test": "node --test test/falzschema.test.mjs",
-    "build": "node scripts/build-single.mjs"
+    "build": "node scripts/build-single.mjs",
+    "export-catalog": "node scripts/export-catalog.mjs"
   },
   "license": "UNLICENSED",
   "devDependencies": {

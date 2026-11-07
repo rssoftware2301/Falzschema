@@ -18,11 +18,12 @@
     <header class="topbar">
       <div>
         <h1>Falzschema</h1>
-        <p class="sub" id="subtitle">16 Seiten · 3-Bruch-Kreuzbruch · Bogen 4 × 2 Seiten</p>
+        <p class="sub" id="subtitle"></p>
       </div>
       <nav class="tabs" role="tablist" aria-label="Bereiche">
         <button role="tab" id="tab-anim" aria-controls="panel-anim" aria-selected="true" class="active">Animation</button>
         <button role="tab" id="tab-schema" aria-controls="panel-schema" aria-selected="false">Ausschuss &amp; Bogenübersicht</button>
+        <button role="tab" id="tab-catalog" aria-controls="panel-catalog" aria-selected="false">CIP4-Falzkatalog</button>
       </nav>
     </header>
 
@@ -32,7 +33,7 @@
           <h2>Produkt</h2>
           <label class="field">
             <span>Seitenumfang</span>
-            <select id="page-count"></select>
+            <span class="with-unit"><input id="page-total" type="number" min="4" max="256" step="4" value="16" /> Seiten</span>
           </label>
           <label class="field">
             <span>Bindeart</span>
@@ -46,6 +47,17 @@
             <span class="with-unit"><input id="caliper" type="number" min="0.03" max="0.5" step="0.01" value="0.10" /> mm</span>
           </label>
           <p id="product-info" class="hint"></p>
+        </section>
+
+        <section>
+          <h2>Bogenaufteilung</h2>
+          <p class="hint top">Anzahl × Seiten je Bogen × CIP4-Falzschema, in der Reihenfolge im Produkt (Bogen 1 = vorne bzw. außen).</p>
+          <div id="groups" class="groups"></div>
+          <div class="group-actions">
+            <button id="btn-group-add">+ Bogengruppe</button>
+            <button id="btn-group-suggest" title="Aufteilung aus 16er-, 8er- und 4er-Bogen vorschlagen">Vorschlag</button>
+          </div>
+          <p id="group-status" class="group-status" aria-live="polite"></p>
         </section>
 
         <section>
@@ -82,10 +94,9 @@
           </section>
 
           <section>
-            <h2>Falzschritte (für alle Bogen)</h2>
-            <p class="hint top">Je Falz wählbar: welche Hälfte geklappt wird und ob nach vorne (zum Betrachter) oder nach hinten. Richtungen gelten mit Blick auf die Vorderseite.</p>
+            <h2>Falzschritte <span id="steps-scheme" class="badge"></span></h2>
+            <p id="steps-intro" class="hint top"></p>
             <ol id="steps" class="steps"></ol>
-            <button id="btn-fold-default" disabled>Standard-Falzrichtungen wiederherstellen</button>
             <p id="status" class="status" aria-live="polite"></p>
           </section>
         </div>
@@ -159,10 +170,41 @@
         <h2 class="overview-title">Bogenübersicht <span class="hint inline">– Zeile anklicken, um den Bogen anzuzeigen</span></h2>
         <table class="overview">
           <thead>
-            <tr><th>Bogen</th><th>Seiten</th><th>Lage im Produkt</th><th>Verdrängung</th></tr>
+            <tr><th>Bogen</th><th>Falzschema</th><th>Seiten</th><th>Lage im Produkt</th><th>Verdrängung</th></tr>
           </thead>
           <tbody id="sheet-overview"></tbody>
         </table>
+      </section>
+    </main>
+
+    <main class="schema-page" id="panel-catalog" role="tabpanel" aria-labelledby="tab-catalog" hidden>
+      <section class="panel catalog">
+        <div class="catalog-head">
+          <div>
+            <h2>CIP4-Falzkatalog</h2>
+            <p class="hint top">
+              Alle Falzschemata des CIP4 „Pagination Catalog“ (JDF Fold Catalog). Raster und Falzfolge stammen aus dem
+              Katalog, der Ausschuss wird daraus berechnet. ↑ = linker bzw. unterer Teil darüber (nach vorne),
+              ↓ = darunter (nach hinten), Bruch = Größe des gefalzten Teils bezogen auf den ungefalzten Bogen,
+              „+“ = Wechsel zwischen senkrechten und waagrechten Falzen.
+            </p>
+          </div>
+          <div class="catalog-tools">
+            <label class="field compact"><span>Seiten</span><select id="catalog-filter"></select></label>
+            <button id="btn-catalog-json">JSON herunterladen</button>
+          </div>
+        </div>
+        <div class="catalog-body">
+          <div class="catalog-table-wrap">
+            <table class="overview catalog-table">
+              <thead>
+                <tr><th>Name</th><th>Falzart</th><th>Seiten</th><th>Raster</th><th>Falze</th><th>Falzfolge</th><th>Sammel&shy;heftung</th></tr>
+              </thead>
+              <tbody id="catalog-rows"></tbody>
+            </table>
+          </div>
+          <aside id="catalog-detail" class="catalog-detail"></aside>
+        </div>
       </section>
     </main>
 

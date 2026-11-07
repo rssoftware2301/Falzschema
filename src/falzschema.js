@@ -1,19 +1,38 @@
 /**
  * Falzschema – Rechenkern (ohne Grafik, auch unter Node.js lauffähig).
  *
- * Der Druckbogen wird als Raster aus starren Feldern ("Blättern") modelliert.
- * Jedes Feld trägt auf der Vorderseite (Schöndruck) und auf der Rückseite
- * (Widerdruck) je eine Endformatseite. Ein Falz ist eine Drehung um 180° um
- * eine Gerade in der Bogenebene; die Felder auf der "beweglichen" Seite der
- * Falzlinie werden dabei auf die liegenbleibende Hälfte geklappt.
+ * Grundlage sind die Falzschemata des CIP4 "Pagination Catalog" (JDF Fold
+ * Catalog, z. B. F16-7). Jedes Schema beschreibt einen Bogen als Raster aus
+ * Spalten × Zeilen gleich großer Felder und eine Falzfolge. Jeder Falz:
+ *   - orientation: 'vertical'   = Falz von links nach rechts (senkrechte Falzlinie)
+ *                  'horizontal' = Falz von unten nach oben (waagrechte Falzlinie)
+ *   - fraction:    Größe des gefalzten (linken bzw. unteren) Teils als Bruchteil
+ *                  des ungefalzten Bogens, gemessen ab der aktuellen linken bzw.
+ *                  unteren Kante des Falzpakets
+ *   - direction:   'over'  = der Teil wird darüber (zum Betrachter) geklappt,
+ *                  'under' = darunter (vom Betrachter weg)
  *
- * Aus der Lage der Felder nach dem letzten Falz ergibt sich die Paginierung:
- * Liegt ein Feld in Lage L (von oben gezählt, beginnend bei 0), so trägt die
- * nach oben zeigende Seite die Seitenzahl 2L+1 und die nach unten zeigende
- * Seite die Seitenzahl 2L+2. Die Stand-Richtung (Kopf) jeder Seite auf dem
- * Bogen erhält man, indem man die Richtung "oben" des fertigen Produkts in
- * das Koordinatensystem des flachen Bogens zurückrechnet.
+ * Der Bogen wird als Raster starrer Felder modelliert; ein Falz ist eine Drehung
+ * um 180° um die Falzlinie. Aus der Lage der Felder nach dem letzten Falz ergibt
+ * sich die Paginierung: Das Feld in Lage L (vom Leser aus oben, ab 0) trägt auf
+ * der dem Leser zugewandten Seite die Seitenzahl 2L+1, auf der Rückseite 2L+2.
+ *
+ * Leserichtung nach CIP4: Der letzte Falz ist die Bindekante (Bund), sie liegt
+ * nach dem Falzen links oder unten. Die dazu senkrechte Kante an der Ecke unten
+ * links ist die Jog-Kante (geschlossener Kopf). Für die Paginierung wird das
+ * Produkt so gedreht, dass der Bund links und die Jog-Kante oben liegt
+ * (BindingOrientation "Rotate0"); bei einreihigen Rastern (ohne geschlossenen
+ * Kopf) gilt "Flip0": die Jog-Kante liegt bereits oben.
+ *
+ * Für Darstellung und Zusammentragen werden alle gefalzten Bogen in ein
+ * gemeinsames Lese-Koordinatensystem gebracht ("kanonisch"): Bund bei x = 0,
+ * Seite im Bereich x 0..Breite, y 0..Höhe, Leser blickt von +z, oberstes Blatt
+ * bei z = 0.
  */
+
+import { CIP4_CATALOG } from './cip4-catalog.js';
+
+export { CIP4_CATALOG };
 
 // ---------------------------------------------------------------------------
 // Kleine 4x4-Matrix-Bibliothek (spaltenweise wie in WebGL/Three.js)
@@ -75,222 +94,273 @@ function inverseRotateVector(m, [x, y, z]) {
 
 const round = (v) => Math.round(v * 1e6) / 1e6;
 
-// ---------------------------------------------------------------------------
-// Falzschemata
-// ---------------------------------------------------------------------------
 
-/**
- * 16-Seiter, 3-Bruch-Kreuzbruch.
- *
- * Bogen: 4 Felder nebeneinander, 2 Felder übereinander, Blick auf die
- * Vorderseite (Schöndruck).
- *   1. Falz: vertikal in der Bogenmitte (Bogen wird halbiert)
- *   2. Falz: horizontal, rechtwinklig zum 1. Falz
- *   3. Falz: vertikal, rechtwinklig zum 2. Falz – bildet den Bund (Rücken)
- *
- * Für jeden Falz ist einstellbar, welche Hälfte bewegt wird
- * (moving: 'positive' = rechts bzw. oben, 'negative' = links bzw. unten) und
- * in welche Richtung sie klappt (direction: 'down' = nach hinten, vom
- * Betrachter weg; 'up' = nach vorne, zum Betrachter hin). Die Richtungen
- * beziehen sich immer auf den Blick auf die Vorderseite des Bogens.
- *
- * Standard: alle Falze nach hinten, linke / obere / linke Hälfte bewegt –
- * die Vorderseite bleibt außen, Seite 1 liegt am Ende obenauf.
- */
-export const DEFAULT_FOLD_SETTINGS = Object.freeze([
-  Object.freeze({ moving: 'negative', direction: 'down' }),
-  Object.freeze({ moving: 'positive', direction: 'down' }),
-  Object.freeze({ moving: 'negative', direction: 'down' }),
-]);
+const EPS = 1e-6;
 
-const FOLD_BASE = [
-  { name: '1. Falz', orientation: 'vertical', where: 'vertikal in der Bogenmitte' },
-  { name: '2. Falz', orientation: 'horizontal', where: 'horizontal, rechtwinklig zum 1. Falz' },
-  { name: '3. Falz', orientation: 'vertical', where: 'vertikal, rechtwinklig zum 2. Falz (Bund)' },
-];
-
-/** Name der bewegten Hälfte, z. B. "linke Hälfte". */
-export function halfName(orientation, moving) {
-  if (orientation === 'vertical') return moving === 'positive' ? 'rechte Hälfte' : 'linke Hälfte';
-  return moving === 'positive' ? 'obere Hälfte' : 'untere Hälfte';
+function rotationZ(angle) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return [c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 }
 
-export function directionName(direction) {
-  return direction === 'up' ? 'nach vorne' : 'nach hinten';
+// ---------------------------------------------------------------------------
+// Katalog
+// ---------------------------------------------------------------------------
+
+const CATALOG_BY_ID = new Map(CIP4_CATALOG.map((e) => [e.id, e]));
+
+export function catalogEntry(id) {
+  const entry = CATALOG_BY_ID.get(id);
+  if (!entry) throw new Error(`Unbekanntes Falzschema: ${id}`);
+  return entry;
 }
 
-/** Erzeugt das Schema "16 Seiten, 3-Bruch-Kreuzbruch" mit den gewählten Falzrichtungen. */
-export function kreuzbruch16(settings = DEFAULT_FOLD_SETTINGS) {
+/** Ist das Schema verwendbar (im CIP4-Katalog nicht als "unsupported" markiert)? */
+export const isSupported = (entry) => !entry.unsupported;
+
+const FRACTION_GLYPHS = { '1/2': '½', '1/3': '⅓', '2/3': '⅔', '1/4': '¼', '3/4': '¾', '1/5': '⅕', '2/5': '⅖', '4/5': '⅘', '1/6': '⅙', '1/8': '⅛' };
+export const fractionText = ([n, d]) => FRACTION_GLYPHS[`${n}/${d}`] ?? `${n}/${d}`;
+
+/** Falzfolge in CIP4/JDF-Notation, z. B. "↑½ + ↑½ + ↓¼". */
+export function sequenceText(entry) {
+  if (!entry.folds.length) return 'kein Falz';
+  let prev = 'vertical';
+  return entry.folds
+    .map((f) => {
+      const sep = f.orientation !== prev ? '+ ' : '';
+      prev = f.orientation;
+      return `${sep}${f.direction === 'over' ? '↑' : '↓'}${fractionText(f.fraction)}`;
+    })
+    .join(' ');
+}
+
+/** Falzart nach deutscher Fachsprache (aus der Falzfolge abgeleitet). */
+export function foldType(entry) {
+  const folds = entry.folds;
+  if (!folds.length) return 'ohne Falz';
+  if (folds.length === 1) return 'Einbruchfalz';
+  const orientations = folds.map((f) => f.orientation);
+  const changes = orientations.slice(1).filter((o, i) => o !== orientations[i]).length;
+  if (changes === 0) {
+    const fr = folds.map((f) => f.fraction[0] / f.fraction[1]);
+    const halving = fr.every((v, i) => i === 0 || Math.abs(v - fr[i - 1] / 2) < EPS);
+    if (halving && fr[0] === 0.5) return 'Mittenparallelfalz';
+    const equal = fr.every((v) => Math.abs(v - fr[0]) < EPS);
+    const alternating = folds.every((f, i) => i === 0 || f.direction !== folds[i - 1].direction);
+    const same = folds.every((f) => f.direction === folds[0].direction);
+    if (equal && alternating) return 'Zickzackfalz (Leporello)';
+    if (equal && same) return 'Wickelfalz';
+    return 'Parallelfalz';
+  }
+  if (changes === folds.length - 1) return 'Kreuzbruchfalz';
+  return 'Kombinationsfalz (Parallel- und Kreuzbruch)';
+}
+
+/** Beschreibung eines Falzes im Klartext. */
+export function foldText(fold) {
+  const vertical = fold.orientation === 'vertical';
+  const line = vertical ? 'senkrechter Falz' : 'waagrechter Falz';
+  const part = vertical ? 'linker Teil' : 'unterer Teil';
+  const size = `${fractionText(fold.fraction)} der Bogen${vertical ? 'breite' : 'höhe'}`;
+  const dir = fold.direction === 'over' ? 'nach vorne darüber' : 'nach hinten darunter';
+  return `${line}: ${part} (${size}) ${dir}`;
+}
+
+/** Normierter Name und Langtext, z. B. "F16-7" / "16 Seiten, 4×2, 3 Falze, Kreuzbruchfalz (↑½ + ↑½ + ↓¼)". */
+export function describeEntry(entry) {
+  const n = entry.folds.length;
   return {
-    id: 'kreuzbruch-3-16',
-    name: '16 Seiten, 3-Bruch-Kreuzbruch',
-    cols: 4,
-    rows: 2,
-    folds: FOLD_BASE.map((base, k) => {
-      const { moving, direction } = { ...DEFAULT_FOLD_SETTINGS[k], ...(settings[k] || {}) };
-      return {
-        name: base.name,
-        orientation: base.orientation,
-        moving,
-        direction,
-        label: `${base.where} – ${halfName(base.orientation, moving)} ${directionName(direction)}`,
-      };
-    }),
-    // Lage des fertigen Produkts: Bund links, Kopf oben.
-    reading: { spine: 'left', head: 'top' },
+    id: entry.id,
+    type: foldType(entry),
+    sequence: sequenceText(entry),
+    longText: `${entry.pages} Seiten, ${entry.cols}×${entry.rows}, ${n === 0 ? 'ohne Falz' : `${n} ${n === 1 ? 'Falz' : 'Falze'}`}, ${foldType(entry)} (${sequenceText(entry)})`,
   };
 }
 
-export const KREUZBRUCH_3_16 = kreuzbruch16();
+/** Standard-Schema je Seitenzahl (für Vorschläge). */
+export const DEFAULT_SCHEMES = { 2: 'F2-1', 4: 'F4-1', 6: 'F6-1', 8: 'F8-7', 10: 'F10-1', 12: 'F12-14', 14: 'F14-1', 16: 'F16-7', 18: 'F18-5', 20: 'F20-1', 24: 'F24-8', 28: 'F28-1', 32: 'F32-6', 36: 'F36-2', 40: 'F40-1', 48: 'F48-1', 64: 'F64-1' };
+
+/** Seitenzahlen, für die es (verwendbare) Schemata gibt. */
+export const SHEET_PAGE_COUNTS = [...new Set(CIP4_CATALOG.filter(isSupported).map((e) => e.pages))].sort((a, b) => a - b);
 
 // ---------------------------------------------------------------------------
-// Berechnung
+// Falzsimulation eines Bogens
 // ---------------------------------------------------------------------------
+
+const signatureCache = new Map();
 
 /**
- * Berechnet alle Zwischenzustände und die Paginierung eines Falzschemas.
+ * Simuliert das Falzen eines Bogens nach einem CIP4-Schema und berechnet die
+ * Paginierung (Seiten 1..pages des Bogens) sowie die Lage aller Felder.
  *
- * @param {object} scheme   Falzschema (z. B. KREUZBRUCH_3_16)
+ * @param {object|string} entryOrId  Katalogeintrag oder Name (z. B. "F16-7")
  * @param {object} [opts]
- * @param {number} [opts.pageWidth=70]   Breite einer Endformatseite
- * @param {number} [opts.pageHeight=99]  Höhe einer Endformatseite
- * @param {number} [opts.thickness=0.6]  Papierstärke (nur für die Darstellung)
+ * @param {number} [opts.pageWidth=70]   Breite der Endformatseite (Leseansicht)
+ * @param {number} [opts.pageHeight=99]  Höhe der Endformatseite (Leseansicht)
+ * @param {number} [opts.thickness=0.6]  Papierstärke (nur Darstellung)
  */
-export function computeScheme(scheme, opts = {}) {
+export function computeSignature(entryOrId, opts = {}) {
+  const entry = typeof entryOrId === 'string' ? catalogEntry(entryOrId) : entryOrId;
   const pageWidth = opts.pageWidth ?? 70;
   const pageHeight = opts.pageHeight ?? 99;
   const thickness = opts.thickness ?? 0.6;
-  const { cols, rows } = scheme;
+  const key = `${entry.id}|${pageWidth}|${pageHeight}|${thickness}`;
+  if (signatureCache.has(key)) return signatureCache.get(key);
+  if (entry.unsupported) throw new Error(`${entry.id} ist im CIP4-Katalog nicht unterstützt (${entry.unsupported})`);
 
-  // Felder anlegen; Zeile 0 = obere Reihe, Spalte 0 = links (Blick auf die Vorderseite).
+  const { cols, rows } = entry;
+  const lastFold = entry.folds[entry.folds.length - 1];
+  // Liegt der Bund waagrecht (letzter Falz von unten nach oben), steht die Seite im
+  // Feld um 90° gedreht: das Feld ist dann quer (Breite = Seitenhöhe).
+  const bindingBottom = lastFold?.orientation === 'horizontal';
+  const cellW = bindingBottom ? pageHeight : pageWidth;
+  const cellH = bindingBottom ? pageWidth : pageHeight;
+  const sheetW = cols * cellW;
+  const sheetH = rows * cellH;
+
+  // Felder; Zeile 0 = oben, Spalte 0 = links (Blick auf die Vorderseite), Ursprung Bogenmitte
   const panels = [];
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
-      const cx = (col - (cols - 1) / 2) * pageWidth;
-      const cy = ((rows - 1) / 2 - row) * pageHeight;
+      const cx = (col - (cols - 1) / 2) * cellW;
+      const cy = ((rows - 1) / 2 - row) * cellH;
       panels.push({ id: panels.length, row, col, cx, cy });
     }
   }
 
-  // matrices[k][i] = Lage von Feld i nach k Falzen
+  const corners = [
+    [-cellW / 2, -cellH / 2],
+    [cellW / 2, -cellH / 2],
+    [cellW / 2, cellH / 2],
+    [-cellW / 2, cellH / 2],
+  ];
+  const extent = (m, coord) => {
+    const vals = corners.map(([x, y]) => transformPoint(m, [x, y, 0])[coord]);
+    return [Math.min(...vals), Math.max(...vals)];
+  };
+
   const matrices = [panels.map((p) => translation(p.cx, p.cy, 0))];
   const folds = [];
-
-  scheme.folds.forEach((fold, k) => {
+  entry.folds.forEach((fold, k) => {
     const current = matrices[k];
-    const centers = current.map((m) => transformPoint(m, [0, 0, 0]));
-    const xs = centers.map((c) => c[0]);
-    const ys = centers.map((c) => c[1]);
-    const zs = centers.map((c) => c[2]);
-    const up = (fold.direction ?? 'up') === 'up';
-    // Falzachse knapp über (bzw. unter) dem Stapel, damit die Lagen sauber aufeinander liegen
-    const h = up ? Math.max(...zs) + thickness / 2 : Math.min(...zs) - thickness / 2;
-
-    let axis, linePos, coord;
-    if (fold.orientation === 'vertical') {
-      axis = 'y';
-      coord = 0;
-      linePos = (Math.min(...xs) + Math.max(...xs)) / 2;
-    } else {
-      axis = 'x';
-      coord = 1;
-      linePos = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const vertical = fold.orientation === 'vertical';
+    const coord = vertical ? 0 : 1;
+    const axis = vertical ? 'y' : 'x';
+    const packetMin = Math.min(...current.map((m) => extent(m, coord)[0]));
+    const linePos = packetMin + (fold.fraction[0] / fold.fraction[1]) * (vertical ? sheetW : sheetH);
+    const moving = current.map((m) => {
+      const [lo, hi] = extent(m, coord);
+      if (hi <= linePos + EPS) return true;
+      if (lo >= linePos - EPS) return false;
+      throw new Error(`${entry.id}: Falz ${k + 1} liegt nicht auf einer Feldgrenze`);
+    });
+    if (!moving.some(Boolean) || moving.every(Boolean)) {
+      throw new Error(`${entry.id}: Falz ${k + 1} bewegt keine bzw. alle Felder`);
     }
-
-    const moving = centers.map((c) =>
-      fold.moving === 'positive' ? c[coord] > linePos + 1e-9 : c[coord] < linePos - 1e-9,
-    );
-
-    // Drehsinn so wählen, dass die bewegte Hälfte nach oben (+z, zum Betrachter hin)
-    // bzw. nach unten (-z, hinter den Bogen) klappt.
-    let sign;
-    if (axis === 'y') sign = fold.moving === 'positive' ? -1 : 1;
-    else sign = fold.moving === 'positive' ? 1 : -1;
-    if (!up) sign = -sign;
-
-    const pivot = axis === 'y' ? [linePos, 0, h] : [0, linePos, h];
-    const matrixAt = (progress) => {
-      const angle = sign * Math.PI * progress;
-      return multiply(
+    const zs = current.map((m) => m[14]);
+    const over = fold.direction === 'over';
+    // Falzachse knapp über bzw. unter dem Stapel, damit die Lagen sauber aufeinander liegen
+    const h = over ? Math.max(...zs) + thickness / 2 : Math.min(...zs) - thickness / 2;
+    // Drehsinn: der linke/untere Teil hebt sich zum Betrachter (darüber) bzw. senkt sich (darunter)
+    let sign = vertical ? 1 : -1;
+    if (!over) sign = -sign;
+    const pivot = vertical ? [linePos, 0, h] : [0, linePos, h];
+    const matrixAt = (progress) =>
+      multiply(
         translation(pivot[0], pivot[1], pivot[2]),
-        multiply(rotation(axis, angle), translation(-pivot[0], -pivot[1], -pivot[2])),
+        multiply(rotation(axis, sign * Math.PI * progress), translation(-pivot[0], -pivot[1], -pivot[2])),
       );
-    };
-
     const full = matrixAt(1);
     matrices.push(current.map((m, i) => (moving[i] ? multiply(full, m) : m)));
     folds.push({ ...fold, index: k, axis, linePos, pivot, moving, matrixAt });
   });
 
   const final = matrices[matrices.length - 1];
+  if (final.some((m) => Math.abs(m[12] - final[0][12]) > EPS || Math.abs(m[13] - final[0][13]) > EPS)) {
+    throw new Error(`${entry.id}: Nach dem letzten Falz liegen die Felder nicht übereinander`);
+  }
 
-  // Leserichtung: Das fertige Produkt wird so betrachtet, dass der Bund (letzter Falz)
-  // links liegt. Liegt er bei Blick von +z rechts, wird das Produkt um die senkrechte
-  // Achse gewendet, d. h. von -z betrachtet.
-  const lastFold = folds[folds.length - 1];
-  const finalCenters = final.map((m) => transformPoint(m, [0, 0, 0]));
-  const finalXs = finalCenters.map((c) => c[0]);
-  // Feldkanten (nicht Mittelpunkte) vergleichen; die Felder liegen nach dem Falzen deckungsgleich.
-  const leftEdge = Math.min(...finalXs) - pageWidth / 2;
-  const rightEdge = Math.max(...finalXs) + pageWidth / 2;
-  const spineLeftFromTop = Math.abs(lastFold.linePos - leftEdge) < Math.abs(lastFold.linePos - rightEdge);
-  const viewSign = spineLeftFromTop === (scheme.reading.spine === 'left') ? 1 : -1;
+  // Leseansicht (CIP4-Standard): Bund links, Jog-Kante (geschlossener Kopf) oben
+  let readerRotation;
+  if (!lastFold || rows === 1) readerRotation = identity(); // Flip0: Jog bereits oben
+  else if (!bindingBottom) readerRotation = rotation('x', Math.PI); // Bund links, Jog unten -> wenden
+  else readerRotation = rotationZ(-Math.PI / 2); // Bund unten, Jog links -> 90° im Uhrzeigersinn
 
-  // Lagen bestimmen (vom Betrachter aus von oben nach unten)
-  const order = panels
-    .map((p, i) => ({ i, z: viewSign * finalCenters[i][2] }))
-    .sort((a, b) => b.z - a.z);
+  // Verschiebung ins kanonische System (Bund bei x = 0, Seite ab y = 0, oberstes Blatt bei z = 0)
+  const rotated = final.map((m) => multiply(readerRotation, m));
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxZ = -Infinity;
+  for (const m of rotated) {
+    for (const [x, y] of corners) {
+      const p = transformPoint(m, [x, y, 0]);
+      minX = Math.min(minX, p[0]);
+      minY = Math.min(minY, p[1]);
+    }
+    maxZ = Math.max(maxZ, m[14]);
+  }
+  const canonicalTransform = multiply(translation(-minX, -minY, -maxZ), readerRotation);
+  const canonical = final.map((m) => multiply(canonicalTransform, m));
 
-  const headVec = { top: [0, 1, 0], bottom: [0, -1, 0], left: [-1, 0, 0], right: [1, 0, 0] }[
-    scheme.reading.head
-  ];
-
-  const result = panels.map((p) => ({ ...p, front: null, back: null }));
+  // Lagen vom Leser aus oben nach unten; Seitenzahlen
+  const order = panels.map((p, i) => ({ i, z: canonical[i][14] })).sort((a, b) => b.z - a.z);
+  const result = panels.map((p) => ({ ...p }));
   order.forEach(({ i }, layer) => {
-    const m = final[i];
-    const normal = transformVector(m, [0, 0, 1]);
-    const frontUp = viewSign * normal[2] > 0;
-    // Kopf-Richtung der Seite in Feld-Koordinaten (gilt für beide Seiten des Blattes,
-    // weil ein Blatt um den senkrechten Bund gewendet wird).
-    const up = inverseRotateVector(m, headVec).map(round);
-    const upPage = 2 * layer + 1;
-    const downPage = 2 * layer + 2;
+    const m = canonical[i];
+    const frontUp = transformVector(m, [0, 0, 1])[2] > 0;
+    // Kopfrichtung der Seite in Feldkoordinaten (für beide Seiten des Blattes gleich,
+    // weil ein Blatt um den senkrechten Bund gewendet wird)
+    const up = inverseRotateVector(m, [0, 1, 0]).map(round);
     result[i].layer = layer;
-    result[i].front = { page: frontUp ? upPage : downPage, up: [up[0], up[1]] };
-    result[i].back = { page: frontUp ? downPage : upPage, up: [up[0], up[1]] };
+    result[i].front = { page: frontUp ? 2 * layer + 1 : 2 * layer + 2, up: [up[0], up[1]] };
+    result[i].back = { page: frontUp ? 2 * layer + 2 : 2 * layer + 1, up: [up[0], up[1]] };
   });
 
-  // Blättern im fertigen Produkt (gedanklich beschnitten): Jedes Feld ist ein Blatt,
-  // das um den Bund gewendet wird. Drehachse senkrecht am Bund, auf halber Stapelhöhe,
-  // damit die gewendeten Blätter auf der anderen Seite in umgekehrter Folge liegen.
-  const zs = finalCenters.map((c) => c[2]);
-  const book = {
-    spineX: lastFold.linePos,
-    axisZ: (Math.min(...zs) + Math.max(...zs)) / 2,
-    // Blätter liegen auf der Seite des Bundes, die nicht der Rand ist
-    leavesSide: spineLeftFromTop ? 'positive' : 'negative',
-  };
+  // Für Sammelheftung geeignet: Blatt L und Blatt N-1-L hängen über den letzten Falz
+  // (Bund) zusammen und bilden ein Doppelblatt.
+  const leaves = panels.length;
+  const layers = order.map(({ i }) => i);
+  let saddleCompatible = leaves % 2 === 0 && !!lastFold;
+  if (saddleCompatible) {
+    const last = folds[folds.length - 1];
+    for (let L = 0; L < leaves / 2 && saddleCompatible; L++) {
+      const a = panels[layers[L]];
+      const b = panels[layers[leaves - 1 - L]];
+      const adjacent =
+        (a.row === b.row && Math.abs(a.col - b.col) === 1) || (a.col === b.col && Math.abs(a.row - b.row) === 1);
+      saddleCompatible = adjacent && last.moving[a.id] !== last.moving[b.id];
+    }
+  }
 
-  return {
-    scheme,
-    viewSign,
-    book,
+  const sig = {
+    entry,
+    id: entry.id,
+    cols,
+    rows,
+    cellW,
+    cellH,
     pageWidth,
     pageHeight,
     thickness,
+    bindingBottom,
     panels: result,
     folds,
     matrices,
-    layers: order.map(({ i }) => i),
+    layers,
+    leaves,
+    readerRotation,
+    canonicalTransform,
+    canonical,
+    saddleCompatible,
   };
+  signatureCache.set(key, sig);
+  return sig;
 }
 
 /**
- * Drehwinkel (Grad, im Uhrzeigersinn) einer Seitenzahl, wenn man den Bogen
- * von der angegebenen Seite betrachtet.
- *  - Vorderseite: Feld-Koordinaten direkt.
- *  - Rückseite: Bogen um die senkrechte Achse gewendet ("umschlagen"),
- *    d. h. x-Richtung gespiegelt.
+ * Drehwinkel (Grad, im Uhrzeigersinn) einer Seitenzahl beim Blick auf die
+ * angegebene Bogenseite. Rückseite: Bogen um die senkrechte Achse gewendet
+ * ("umschlagen"), d. h. x-Richtung gespiegelt.
  */
 export function pageRotation(up, side = 'front') {
   const [ux, uy] = side === 'front' ? up : [-up[0], up[1]];
@@ -300,18 +370,14 @@ export function pageRotation(up, side = 'front') {
   return 270;
 }
 
-/**
- * Liefert das Ausschuss-Raster einer Bogenseite als Zeilen von
- * { page, rotation } – so wie man den Bogen von dieser Seite aus sieht.
- */
-export function sheetLayout(computed, side = 'front') {
-  const { cols, rows } = computed.scheme;
+/** Ausschuss-Raster einer Bogenseite als Zeilen von { page, rotation, panel }. */
+export function sheetLayout(sig, side = 'front', panels = sig.panels) {
   const grid = [];
-  for (let row = 0; row < rows; row++) {
+  for (let row = 0; row < sig.rows; row++) {
     const line = [];
-    for (let viewCol = 0; viewCol < cols; viewCol++) {
-      const col = side === 'front' ? viewCol : cols - 1 - viewCol;
-      const p = computed.panels.find((q) => q.row === row && q.col === col);
+    for (let viewCol = 0; viewCol < sig.cols; viewCol++) {
+      const col = side === 'front' ? viewCol : sig.cols - 1 - viewCol;
+      const p = panels.find((q) => q.row === row && q.col === col);
       const face = side === 'front' ? p.front : p.back;
       line.push({ page: face.page, rotation: pageRotation(face.up, side), panel: p.id });
     }
@@ -320,64 +386,46 @@ export function sheetLayout(computed, side = 'front') {
   return grid;
 }
 
-/** Interpolierte Matrix eines Feldes während der Animation. */
-export function panelMatrixAt(computed, panelIndex, step, progress) {
-  // step = Index des gerade laufenden Falzes (0..n-1), progress 0..1
-  // step >= n  => fertig gefalzt
-  const n = computed.folds.length;
-  if (step >= n) return computed.matrices[n][panelIndex];
-  const base = computed.matrices[step][panelIndex];
-  const fold = computed.folds[step];
+/** Matrix eines Feldes während der Falzanimation (step = laufender Falz, progress 0..1). */
+export function panelMatrixAt(sig, panelIndex, step, progress) {
+  const n = sig.folds.length;
+  if (step >= n) return sig.matrices[n][panelIndex];
+  const base = sig.matrices[step][panelIndex];
+  const fold = sig.folds[step];
   if (!fold.moving[panelIndex] || progress <= 0) return base;
   return multiply(fold.matrixAt(Math.min(progress, 1)), base);
 }
 
 /**
- * Matrix eines Blattes beim Blättern im fertigen Produkt.
- * @param {number} turned  0 = Blatt liegt rechts vom Bund, 1 = ganz umgeblättert
+ * Blättern im kanonischen System: dreht ein Blatt um den Bund (senkrechte Achse
+ * bei x = 0 in Höhe axisZ). turned = 0: liegt rechts, 1: ganz umgeblättert.
  */
-export function leafMatrixAt(computed, panelIndex, turned) {
-  const base = computed.matrices[computed.folds.length][panelIndex];
-  return turnAboutSpine(computed, base, turned, computed.book.axisZ);
-}
-
-/**
- * Dreht eine Blatt-Matrix um den Bund (senkrechte Achse bei x = spineX, Höhe axisZ).
- * turned = 0: liegt auf der Blattseite, 1: ganz umgeblättert. Das Blatt hebt sich
- * dabei zum Betrachter hin.
- */
-export function turnAboutSpine(computed, matrix, turned, axisZ) {
-  if (turned === 0) return matrix;
-  const { spineX, leavesSide } = computed.book;
-  const sign = (leavesSide === 'positive' ? -1 : 1) * computed.viewSign;
-  const angle = sign * Math.PI * Math.min(turned, 1);
-  const turn = multiply(
-    translation(spineX, 0, axisZ),
-    multiply(rotation('y', angle), translation(-spineX, 0, -axisZ)),
+export function turnCanonical(matrix, turned, axisZ) {
+  if (turned <= 0) return matrix;
+  const angle = -Math.PI * Math.min(turned, 1);
+  return multiply(
+    translation(0, 0, axisZ),
+    multiply(rotation('y', angle), multiply(translation(0, 0, -axisZ), matrix)),
   );
-  return multiply(turn, matrix);
 }
 
-/**
- * Welche Seiten sind sichtbar, wenn `turned` Blätter umgeblättert sind?
- * Liefert { left, right } (null, wenn auf der Seite nichts liegt).
- */
-export function openPages(computed, turned, leaves = computed.panels.length) {
+/** Höhe der Bund-Drehachse eines einzelnen Bogens (Stapelmitte, kanonisch). */
+export function signatureAxisZ(sig) {
+  return (-(sig.leaves - 1) * sig.thickness) / 2;
+}
+
+export function openPages(turned, leaves) {
   const k = Math.max(0, Math.min(leaves, Math.round(turned)));
   return { left: k > 0 ? 2 * k : null, right: k < leaves ? 2 * k + 1 : null };
 }
 
 /**
- * Falzlinien (Brüche) auf dem flachen Bogen, je Falz eine Liste von Strecken
- * [[x1, y1], [x2, y2]] in Bogenkoordinaten (Blick auf die Vorderseite,
- * Ursprung in der Bogenmitte, y nach oben).
- *
- * Ein Bruch des Falzes k liegt zwischen zwei benachbarten Feldern, von denen
- * genau eines bei diesem Falz bewegt wird.
+ * Falzlinien auf dem flachen Bogen, je Falz eine Liste von Strecken
+ * [[x1, y1], [x2, y2]] (Blick auf die Vorderseite, Ursprung Bogenmitte, y nach oben).
  */
-export function creases(computed) {
-  const { panels, pageWidth: w, pageHeight: h } = computed;
-  return computed.folds.map((fold) => {
+export function creases(sig) {
+  const { panels, cellW: w, cellH: h } = sig;
+  return sig.folds.map((fold) => {
     const segs = [];
     for (const a of panels) {
       for (const b of panels) {
@@ -427,11 +475,8 @@ function mergeSegments(segs) {
 }
 
 // ---------------------------------------------------------------------------
-// Produktion: mehrere Bogen, Sammelheftung / Klebebindung
+// Produktion: mehrere (auch unterschiedliche) Bogen, Sammelheftung / Klebebindung
 // ---------------------------------------------------------------------------
-
-/** Wählbare Seitenumfänge (Vielfache von 16 = 1 bis 8 Druckbogen). */
-export const PAGE_COUNTS = [16, 32, 48, 64, 80, 96, 112, 128];
 
 export const BINDINGS = {
   saddle: 'Sammelheftung',
@@ -439,74 +484,91 @@ export const BINDINGS = {
 };
 
 /**
- * Verteilt die Seiten eines Produkts auf mehrere gleich gefalzte Druckbogen.
- *
- * Jeder Bogen ergibt nach dem Falzen einen Stapel von 8 Blättern (Lagen 0..7).
- * Im fertigen Produkt erhält jedes Blatt eine globale Position g (0 = vorne):
- *
- *  - Klebebindung: Die Bogen werden nacheinander zusammengetragen,
- *    Bogen s belegt die Blätter 8s … 8s+7 (Seiten 16s+1 … 16s+16).
- *  - Sammelheftung: Die Bogen werden ineinandergesteckt (Bogen 1 außen).
- *    Die vordere Hälfte von Bogen s (Lagen 0..3) liegt bei 4s+L, die hintere
- *    Hälfte (Lagen 4..7) bei Blattzahl - 4s - 8 + L. Bogen 1 trägt also bei
- *    128 Seiten die Seiten 1–8 und 121–128.
- *
- * Die Seitenzahl ergibt sich wie beim einzelnen Bogen aus der Position:
- * Vorderseite des Blattes g = 2g+1, Rückseite = 2g+2.
- *
- * Verdrängung (nur Sammelheftung): Innere Bogen werden von den äußeren
- * umschlossen und stehen am Vorderschnitt über. Je Bogen wird angesetzt:
- * Anzahl umschließender Bogen × 4 Blatt (eine Seite des Rückens) × Papierstärke.
- * Um diesen Betrag wird der Seiteninhalt beim Ausschießen zum Bund hin
- * verschoben, damit die Ränder nach dem Beschnitt gleich sind.
- *
- * @param {object} model   Ergebnis von computeScheme
- * @param {object} opts
- * @param {number} opts.pages     Seitenumfang (Vielfaches der Seiten je Bogen)
- * @param {'saddle'|'perfect'} opts.binding
- * @param {number} opts.caliper   Papierstärke in mm
+ * Schlägt eine Aufteilung einer Seitenzahl auf Falzbogen vor (möglichst große
+ * Bogen aus 16, 8, 4 Seiten), z. B. 76 -> 4×16 + 1×8 + 1×4.
  */
-export function computeProduction(model, { pages = 16, binding = 'perfect', caliper = 0.1 } = {}) {
-  const leavesPerSheet = model.panels.length;
-  const pagesPerSheet = 2 * leavesPerSheet;
-  if (!Number.isInteger(pages / pagesPerSheet) || pages <= 0) {
-    throw new Error(`Seitenumfang muss ein Vielfaches von ${pagesPerSheet} sein: ${pages}`);
+export function suggestGroups(pages, sizes = [16, 8, 4]) {
+  const groups = [];
+  let rest = pages;
+  for (const size of sizes) {
+    const count = Math.floor(rest / size);
+    if (count > 0) {
+      groups.push({ count, scheme: DEFAULT_SCHEMES[size] });
+      rest -= count * size;
+    }
   }
+  return groups;
+}
+
+/**
+ * Verteilt die Seiten eines Produkts auf die Bogen.
+ *
+ * @param {Array<{count:number, scheme:string}>} groups  Bogengruppen in Produktreihenfolge
+ * @param {object} opts
+ * @param {'saddle'|'perfect'} opts.binding
+ * @param {number} opts.caliper  Papierstärke in mm (für die Verdrängung)
+ * @param {number} [opts.pages]  erwartete Gesamtseitenzahl (Prüfung)
+ *
+ * Klebebindung: Bogen nacheinander. Sammelheftung: Bogen ineinandergesteckt,
+ * Bogen 1 außen; die vordere Hälfte jedes Bogens liegt vor, die hintere hinter
+ * den inneren Bogen. Verdrängung je Bogen (Sammelheftung) = Anzahl Blätter der
+ * umschließenden Bogen auf einer Seite des Rückens × Papierstärke.
+ */
+export function computeProduction(groups, { binding = 'perfect', caliper = 0.1, pages, ...sigOpts } = {}) {
   if (!BINDINGS[binding]) throw new Error(`Unbekannte Bindeart: ${binding}`);
-  const n = pages / pagesPerSheet;
-  const half = leavesPerSheet / 2;
-  const totalLeaves = n * leavesPerSheet;
+  const errors = [];
+  const sigs = [];
+  for (const g of groups) {
+    const entry = CATALOG_BY_ID.get(g.scheme);
+    if (!entry) {
+      errors.push(`Unbekanntes Falzschema ${g.scheme}`);
+      continue;
+    }
+    if (entry.unsupported) {
+      errors.push(`${g.scheme} ist im CIP4-Katalog nicht unterstützt`);
+      continue;
+    }
+    const sig = computeSignature(entry, sigOpts);
+    if (binding === 'saddle' && !sig.saddleCompatible) {
+      errors.push(`${g.scheme} eignet sich nicht für Sammelheftung (Blätter hängen nicht paarweise am Bund zusammen)`);
+    }
+    for (let i = 0; i < g.count; i++) sigs.push(sig);
+  }
+  const total = sigs.reduce((sum, s) => sum + s.entry.pages, 0);
+  if (pages !== undefined && total !== pages) errors.push(`Die Bogen ergeben ${total} statt ${pages} Seiten`);
+  if (!sigs.length) errors.push('Keine Bogen definiert');
+  if (errors.length) return { errors, sheets: [], leaves: [], totalLeaves: 0, pages: total, n: 0, binding, caliper };
 
-  const globalLeaf = (s, L) => {
-    if (binding === 'perfect') return leavesPerSheet * s + L;
-    return L < half ? half * s + L : totalLeaves - half * s - leavesPerSheet + L;
-  };
-
+  const totalLeaves = total / 2;
   const leaves = new Array(totalLeaves);
   const sheets = [];
-  for (let s = 0; s < n; s++) {
-    const panels = model.panels.map((p) => {
-      const g = globalLeaf(s, p.layer);
+  let before = 0; // Klebebindung: Blätter vor diesem Bogen; Sammelheftung: Blätter je Seite außen herum
+  sigs.forEach((sig, s) => {
+    const N = sig.leaves;
+    const globalLeaf = (L) => {
+      if (binding === 'perfect') return before + L;
+      return L < N / 2 ? before + L : totalLeaves - before - N + L;
+    };
+    const panels = sig.panels.map((p) => {
+      const g = globalLeaf(p.layer);
       const offset = 2 * (g - p.layer);
       leaves[g] = { g, sheet: s, panel: p.id, layer: p.layer };
-      return {
-        ...p,
-        leaf: g,
-        front: { ...p.front, page: p.front.page + offset },
-        back: { ...p.back, page: p.back.page + offset },
-      };
+      return { ...p, leaf: g, front: { ...p.front, page: p.front.page + offset }, back: { ...p.back, page: p.back.page + offset } };
     });
     const sheetPages = panels.flatMap((p) => [p.front.page, p.back.page]).sort((a, b) => a - b);
     sheets.push({
       index: s,
+      sig,
+      scheme: sig.id,
       panels,
       pages: sheetPages,
       pageRanges: pageRanges(sheetPages),
-      creep: binding === 'saddle' ? round(s * half * caliper) : 0,
+      creep: binding === 'saddle' ? round(before * caliper) : 0,
     });
-  }
+    before += binding === 'perfect' ? N : N / 2;
+  });
 
-  return { n, pages, binding, caliper, leavesPerSheet, totalLeaves, sheets, leaves };
+  return { errors, n: sheets.length, pages: total, binding, caliper, totalLeaves, sheets, leaves, thickness: sigs[0].thickness };
 }
 
 /** Fasst Seitenzahlen zu Bereichen zusammen: [1,2,3,7,8] -> "1–3, 7–8". */
@@ -526,33 +588,18 @@ export function pageRanges(pages) {
   return out.join(', ');
 }
 
-/** Sheet-Layout (wie sheetLayout) für einen Bogen der Produktion. */
-export function productionSheetLayout(model, sheet, side = 'front') {
-  return sheetLayout({ ...model, panels: sheet.panels }, side);
-}
 
 /**
- * Lage eines Blattes im fertig zusammengetragenen, geschlossenen Produkt.
- * Alle Blätter liegen im Abstand der Papierstärke (Darstellung) übereinander,
- * Blatt 0 obenauf (zum Betrachter).
+ * Lage eines Blattes im fertig zusammengetragenen, geschlossenen Produkt
+ * (kanonisches System; Blatt g liegt in Tiefe -g × Papierstärke).
  */
-export function bookLeafMatrix(model, leaf) {
-  const base = model.matrices[model.folds.length][leaf.panel];
-  const dz = model.viewSign * model.thickness * (leaf.layer - leaf.g);
-  return multiply(translation(0, 0, dz), base);
+export function bookLeafMatrix(production, leaf) {
+  const sig = production.sheets[leaf.sheet].sig;
+  const m = sig.canonical[leaf.panel];
+  return multiply(translation(0, 0, -leaf.g * sig.thickness - m[14]), m);
 }
 
 /** Höhe der Bund-Drehachse für das Blättern im Gesamtprodukt (Stapelmitte). */
-export function bookAxisZ(model, production) {
-  const zTop = transformPoint(bookLeafMatrix(model, production.leaves[0]), [0, 0, 0])[2];
-  const zBottom = transformPoint(bookLeafMatrix(model, production.leaves[production.totalLeaves - 1]), [0, 0, 0])[2];
-  return (zTop + zBottom) / 2;
-}
-
-/**
- * Richtung (Bogen-Koordinaten, ±1 in x) vom Bund zum Vorderschnitt im
- * fertigen Produkt.
- */
-export function foreEdgeDirection(model) {
-  return model.book.leavesSide === 'positive' ? 1 : -1;
+export function bookAxisZ(production) {
+  return (-(production.totalLeaves - 1) * production.thickness) / 2;
 }
