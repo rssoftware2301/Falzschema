@@ -16,12 +16,18 @@
   </head>
   <body>
     <header class="topbar">
-      <div>
-        <h1>Falzschema</h1>
-        <p class="sub" id="subtitle"></p>
+      <div class="topbar-row">
+        <div>
+          <h1>Falzschema</h1>
+          <p class="sub" id="subtitle"></p>
+        </div>
+        <div class="topbar-right">
+          <p class="copyright">Copyright © 1990-2026 rs Softwareentwicklung OG, 2301 Groß-Enzersdorf, All rights reserved.</p>
+          <button id="btn-help" class="help-main" title="Hilfe zum aktuellen Bereich (F1)" aria-haspopup="dialog">? Hilfe</button>
+        </div>
       </div>
       <nav class="tabs" role="tablist" aria-label="Bereiche">
-        <button role="tab" id="tab-anim" aria-controls="panel-anim" aria-selected="true" class="active">Animation</button>
+        <button role="tab" id="tab-anim" aria-controls="panel-anim" aria-selected="true" class="active">Grunddaten &amp; Grafik</button>
         <button role="tab" id="tab-schema" aria-controls="panel-schema" aria-selected="false">Ausschuss &amp; Bogenübersicht</button>
         <button role="tab" id="tab-catalog" aria-controls="panel-catalog" aria-selected="false">CIP4-Falzkatalog</button>
       </nav>
@@ -29,8 +35,8 @@
 
     <main class="layout" id="panel-anim" role="tabpanel" aria-labelledby="tab-anim">
       <aside class="panel controls" aria-label="Steuerung">
-        <section>
-          <h2>Produkt</h2>
+        <section data-help="product">
+          <h2>Produkt <button class="help-btn" data-topic="product" title="Hilfe: Produkt">?</button></h2>
           <label class="field">
             <span>Seitenumfang</span>
             <span class="with-unit"><input id="page-total" type="number" min="4" max="256" step="4" value="16" /> Seiten</span>
@@ -49,8 +55,8 @@
           <p id="product-info" class="hint"></p>
         </section>
 
-        <section>
-          <h2>Bogenaufteilung</h2>
+        <section data-help="groups">
+          <h2>Bogenaufteilung <button class="help-btn" data-topic="groups" title="Hilfe: Bogenaufteilung">?</button></h2>
           <p class="hint top">Anzahl × Seiten je Bogen × CIP4-Falzschema, in der Reihenfolge im Produkt (Bogen 1 = vorne bzw. außen).</p>
           <div id="groups" class="groups"></div>
           <div class="group-actions">
@@ -60,8 +66,8 @@
           <p id="group-status" class="group-status" aria-live="polite"></p>
         </section>
 
-        <section>
-          <h2>Ansicht</h2>
+        <section data-help="view">
+          <h2>Ansicht <button class="help-btn" data-topic="view" title="Hilfe: Ansicht">?</button></h2>
           <div id="view-chips" class="chips" role="group" aria-label="Bogen oder Endprodukt wählen"></div>
           <div class="segmented spaced" role="group" aria-label="Seite">
             <button id="btn-front" class="active" aria-pressed="true">Vorderseite</button>
@@ -79,8 +85,8 @@
         </section>
 
         <div id="sheet-controls">
-          <section>
-            <h2>Falzanimation <span id="sheet-label" class="badge"></span></h2>
+          <section data-help="folding">
+            <h2>Falzanimation <span id="sheet-label" class="badge"></span> <button class="help-btn" data-topic="folding" title="Hilfe: Falzanimation">?</button></h2>
             <div class="buttons">
               <button id="btn-reset" title="Bogen wieder flach legen">⏮ Zurück auf Anfang</button>
               <button id="btn-prev" title="Einen Falz zurück">◀ Falz zurück</button>
@@ -93,8 +99,8 @@
             </label>
           </section>
 
-          <section>
-            <h2>Falzschritte <span id="steps-scheme" class="badge"></span></h2>
+          <section data-help="folding">
+            <h2>Falzschritte <span id="steps-scheme" class="badge"></span> <button class="help-btn" data-topic="folding" title="Hilfe: Falzschritte">?</button></h2>
             <p id="steps-intro" class="hint top"></p>
             <ol id="steps" class="steps"></ol>
             <p id="status" class="status" aria-live="polite"></p>
@@ -102,8 +108,8 @@
         </div>
 
         <div id="book-controls" hidden>
-          <section>
-            <h2>Zusammentragen &amp; Endverarbeitung</h2>
+          <section data-help="assembly">
+            <h2>Zusammentragen &amp; Endverarbeitung <button class="help-btn" data-topic="assembly" title="Hilfe: Zusammentragen">?</button></h2>
             <p id="assembly-intro" class="hint top"></p>
             <div class="buttons">
               <button id="btn-asm-reset" title="Bogen wieder bereitlegen">⏮ Zurück auf Anfang</button>
@@ -117,8 +123,8 @@
           </section>
         </div>
 
-        <section>
-          <h2 id="browse-title">Blättern</h2>
+        <section data-help="browse">
+          <h2><span id="browse-title">Blättern</span> <button class="help-btn" data-topic="browse" title="Hilfe: Blättern">?</button></h2>
           <div id="book-pages" class="book-pages" aria-live="polite">–</div>
           <div class="buttons">
             <button id="btn-page-prev" title="Zurückblättern (Pfeiltaste links)">◀ Zurück</button>
@@ -129,13 +135,13 @@
           <p id="book-hint" class="hint"></p>
         </section>
 
-        <section>
+        <section data-help="view">
           <button id="btn-camera">Kamera zurücksetzen</button>
           <p class="hint">3D-Ansicht mit der Maus drehen (linke Taste), verschieben (rechte Taste) und zoomen (Mausrad).</p>
         </section>
       </aside>
 
-      <section class="panel stage" aria-label="3D-Darstellung">
+      <section class="panel stage" aria-label="3D-Darstellung" data-help="view">
         <div id="viewport"></div>
         <div class="legend">
           <span><i class="swatch front"></i>Vorderseite (Schöndruck)</span>
@@ -148,9 +154,9 @@
     </main>
 
     <main class="schema-page" id="panel-schema" role="tabpanel" aria-labelledby="tab-schema" hidden>
-      <section class="panel schema" aria-label="Ausschuss-Schema">
+      <section class="panel schema" aria-label="Ausschuss-Schema" data-help="schema">
         <div id="schema-chips" class="chips schema-chips" role="group" aria-label="Bogen wählen"></div>
-        <h2 id="schema-title">Ausschuss</h2>
+        <h2><span id="schema-title">Ausschuss</span> <button class="help-btn" data-topic="schema" title="Hilfe: Ausschuss lesen">?</button></h2>
         <p id="schema-creep" class="creep-note" hidden></p>
         <div class="schema-grid">
           <figure>
@@ -167,7 +173,7 @@
           Linien sind die Falzlinien mit der Nummer des Falzschritts, der graue Rahmen ist der Satzspiegel.
         </p>
 
-        <h2 class="overview-title">Bogenübersicht <span class="hint inline">– Zeile anklicken, um den Bogen anzuzeigen</span></h2>
+        <h2 class="overview-title">Bogenübersicht <button class="help-btn" data-topic="overview" title="Hilfe: Bogenübersicht">?</button> <span class="hint inline">– Zeile anklicken, um den Bogen anzuzeigen</span></h2>
         <table class="overview">
           <thead>
             <tr><th>Bogen</th><th>Falzschema</th><th>Seiten</th><th>Lage im Produkt</th><th>Verdrängung</th></tr>
@@ -178,10 +184,10 @@
     </main>
 
     <main class="schema-page" id="panel-catalog" role="tabpanel" aria-labelledby="tab-catalog" hidden>
-      <section class="panel catalog">
+      <section class="panel catalog" data-help="catalog">
         <div class="catalog-head">
           <div>
-            <h2>CIP4-Falzkatalog</h2>
+            <h2>CIP4-Falzkatalog <button class="help-btn" data-topic="catalog" title="Hilfe: Falzkatalog">?</button></h2>
             <p class="hint top">
               Alle Falzschemata des CIP4 „Pagination Catalog“ (JDF Fold Catalog). Raster und Falzfolge stammen aus dem
               Katalog, der Ausschuss wird daraus berechnet. ↑ = linker bzw. unterer Teil darüber (nach vorne),
@@ -208,6 +214,230 @@
       </section>
     </main>
 
+    <dialog id="help" class="help-dialog" aria-labelledby="help-title">
+      <div class="help-head">
+        <h2 id="help-title">Hilfe – Bedienung</h2>
+        <button id="btn-help-close" class="help-close" title="Schließen (Esc)" aria-label="Hilfe schließen">✕</button>
+      </div>
+      <div class="help-body">
+        <nav class="help-toc" aria-label="Inhalt der Hilfe">
+          <a href="#help-overview" data-topic="overview">Überblick</a>
+          <a href="#help-start" data-topic="start">Schnelleinstieg</a>
+          <a href="#help-product" data-topic="product">Produkt</a>
+          <a href="#help-groups" data-topic="groups">Bogenaufteilung</a>
+          <a href="#help-view" data-topic="view">Ansicht &amp; 3D-Bild</a>
+          <a href="#help-folding" data-topic="folding">Falzanimation</a>
+          <a href="#help-assembly" data-topic="assembly">Zusammentragen</a>
+          <a href="#help-browse" data-topic="browse">Blättern</a>
+          <a href="#help-schema" data-topic="schema">Ausschuss lesen</a>
+          <a href="#help-overview-table" data-topic="overview-table">Bogenübersicht</a>
+          <a href="#help-catalog" data-topic="catalog">CIP4-Falzkatalog</a>
+          <a href="#help-keys" data-topic="keys">Tastatur</a>
+          <a href="#help-terms" data-topic="terms">Begriffe</a>
+        </nav>
+        <div class="help-content" id="help-content">
+          <section id="help-overview">
+            <h3>Überblick</h3>
+            <p>
+              Das Programm zeigt, wie die Seiten eines Druckprodukts auf Druckbogen verteilt werden (Ausschuss), wie
+              jeder Bogen gefalzt wird und wie die gefalzten Bogen zum fertigen Exemplar zusammengetragen werden.
+              Grundlage der Falzungen sind die Falzschemata des <strong>CIP4-Falzkatalogs</strong> (z. B. F16-7).
+            </p>
+            <p>Die Anwendung hat drei Register:</p>
+            <ul>
+              <li><strong>Grunddaten &amp; Grafik</strong> – links die Eingaben und Schalter, rechts die 3D-Darstellung mit den Animationen.</li>
+              <li><strong>Ausschuss &amp; Bogenübersicht</strong> – Vorder- und Rückseite des gewählten Bogens als Schema und die Liste aller Bogen.</li>
+              <li><strong>CIP4-Falzkatalog</strong> – alle Falzschemata mit ihren Angaben und einer Vorschau.</li>
+            </ul>
+            <p>
+              Diese Hilfe öffnet sich über den Schalter <span class="key">? Hilfe</span> oben rechts oder mit
+              <span class="key">F1</span> – jeweils beim Thema, an dem Sie gerade arbeiten. Die kleinen
+              <span class="key">?</span>-Schalter neben den Überschriften führen direkt zum zugehörigen Thema.
+            </p>
+          </section>
+
+          <section id="help-start">
+            <h3>Schnelleinstieg</h3>
+            <ol>
+              <li>Unter <em>Produkt</em> den <strong>Seitenumfang</strong> eingeben und die <strong>Bindeart</strong> wählen.</li>
+              <li>Unter <em>Bogenaufteilung</em> auf <span class="key">Vorschlag</span> klicken oder die Bogen selbst festlegen und je Bogengruppe ein Falzschema wählen.</li>
+              <li>Unter <em>Ansicht</em> einen Bogen wählen und <span class="key">▶ Alle Falze abspielen</span> klicken.</li>
+              <li>Auf <span class="key">Endprodukt</span> wechseln und <span class="key">▶ Zusammentragen abspielen</span> klicken.</li>
+              <li>Danach mit <span class="key">Vor ▶</span> oder den Pfeiltasten durch das fertige Exemplar blättern.</li>
+              <li>Im Register <em>Ausschuss &amp; Bogenübersicht</em> die Seitenverteilung jedes Bogens ansehen.</li>
+            </ol>
+          </section>
+
+          <section id="help-product">
+            <h3>Produkt</h3>
+            <dl>
+              <dt>Seitenumfang</dt>
+              <dd>
+                Gesamtzahl der Seiten des Endprodukts (bis 256). Bei <strong>Sammelheftung</strong> muss die Zahl ein
+                Vielfaches von 4 sein, weil nur Doppelblätter geheftet werden können. Bei <strong>Klebebindung</strong>
+                genügt ein Vielfaches von 2, denn hier können auch Einzelblätter (Schema F2-1, 2 Seiten) verklebt werden.
+                Passt die bisherige Bogenaufteilung nach einer Änderung nicht mehr, wird automatisch eine neue vorgeschlagen.
+              </dd>
+              <dt>Bindeart</dt>
+              <dd>
+                <strong>Sammelheftung</strong>: Die gefalzten Bogen werden ineinandergesteckt und durch den Rücken
+                geheftet. Bogen 1 liegt außen, der letzte Bogen in der Mitte.<br />
+                <strong>Klebebindung</strong>: Die Bogen werden nacheinander aufeinandergelegt und am Rücken verklebt.
+                Bogen 1 liegt vorne.
+              </dd>
+              <dt>Papierstärke</dt>
+              <dd>
+                Nur bei Sammelheftung. Daraus wird die <strong>Verdrängung</strong> berechnet: Innere Bogen werden von den
+                äußeren umschlossen und stehen am Vorderschnitt über. Je Bogen gilt: Anzahl Blätter der umschließenden
+                Bogen auf einer Seite des Rückens × Papierstärke. Um diesen Betrag wird der Seiteninhalt beim Ausschießen
+                zum Bund hin verschoben.
+              </dd>
+            </dl>
+          </section>
+
+          <section id="help-groups">
+            <h3>Bogenaufteilung</h3>
+            <p>
+              Hier legen Sie fest, aus welchen Falzbogen das Produkt besteht. Jede Zeile ist eine <strong>Bogengruppe</strong>:
+              <em>Anzahl × Seiten je Bogen</em> und darunter das <em>Falzschema</em> aus dem CIP4-Katalog.
+              Beispiel für 76 Seiten: 4 × 16 Seiten (F16-6) + 1 × 8 Seiten (F8-7) + 1 × 4 Seiten (F4-1).
+            </p>
+            <ul>
+              <li>Die <strong>Reihenfolge</strong> der Gruppen ist die Reihenfolge im Produkt: Bogen 1 liegt vorne (Klebebindung) bzw. außen (Sammelheftung).</li>
+              <li><span class="key">+ Bogengruppe</span> fügt eine Zeile hinzu, <span class="key">✕</span> entfernt sie.</li>
+              <li><span class="key">Vorschlag</span> teilt den Seitenumfang in möglichst große Bogen auf (16, 8, 4 Seiten; bei Klebebindung auch Einzelblätter mit 2 Seiten).</li>
+              <li>Beim Ändern der Seitenzahl je Bogen wird ein passendes Standardschema gewählt; die Auswahlliste zeigt alle Schemata mit dieser Seitenzahl samt Falzart und Falzfolge.</li>
+              <li>Unter den Gruppen steht die <strong>Summe</strong>. Grün mit ✓ heißt: übernommen. Rot zeigt, was nicht passt – etwa eine falsche Summe oder ein Schema, das sich nicht für Sammelheftung eignet (gekennzeichnet mit „nicht für Sammelheftung“). Bis zur Korrektur bleibt die letzte gültige Darstellung stehen.</li>
+            </ul>
+          </section>
+
+          <section id="help-view">
+            <h3>Ansicht &amp; 3D-Bild</h3>
+            <ul>
+              <li>Die farbigen Schalter <span class="key">Bogen 1</span>, <span class="key">Bogen 2</span> … zeigen einen einzelnen Bogen (flach und zum Falzen). Die Farbe kennzeichnet den Bogen auch an den Blattkanten im Endprodukt.</li>
+              <li><span class="key">Endprodukt</span> zeigt das Zusammentragen aller Bogen und das fertige Exemplar.</li>
+              <li><span class="key">Vorderseite</span> / <span class="key">Rückseite</span> wenden das Objekt. Die Rückseite wird wie beim Umschlagen gezeigt (um die senkrechte Achse gewendet).</li>
+              <li><strong>Geschwindigkeit</strong> gilt für alle Animationen.</li>
+              <li>Maus im 3D-Bild: linke Taste ziehen = drehen, rechte Taste ziehen = verschieben, Mausrad = zoomen. <span class="key">Kamera zurücksetzen</span> stellt den Blickwinkel wieder her.</li>
+              <li>Weiß = Vorderseite (Schöndruck), hellblau = Rückseite (Widerdruck), orange Balken = Kopf der Seite, rote Linie = nächster Falz.</li>
+            </ul>
+          </section>
+
+          <section id="help-folding">
+            <h3>Falzanimation und Falzschritte</h3>
+            <p>
+              Zeigt, wie der gewählte Bogen nach seinem CIP4-Schema gefalzt wird. Die rote Linie im 3D-Bild und im Schema
+              markiert den nächsten Falz.
+            </p>
+            <ul>
+              <li><span class="key">▶ Alle Falze abspielen</span> falzt den Bogen vollständig (erneut klicken = anhalten).</li>
+              <li><span class="key">Nächster Falz ▶</span> / <span class="key">◀ Falz zurück</span> gehen einen Falz weiter bzw. zurück.</li>
+              <li><span class="key">⏮ Zurück auf Anfang</span> legt den Bogen wieder flach.</li>
+              <li>Mit dem Schieberegler <strong>Fortschritt</strong> lässt sich jede Zwischenstellung einstellen.</li>
+              <li>Ein Klick auf einen <strong>Falzschritt</strong> in der Liste falzt bis einschließlich dieses Schritts.</li>
+            </ul>
+            <p>
+              Jeder Falzschritt nennt die Richtung der Falzlinie, den gefalzten Teil und seine Größe:
+              <strong>↑</strong> = der linke bzw. untere Teil wird nach vorne darüber geklappt, <strong>↓</strong> = nach hinten darunter.
+              Der Bruch (z. B. ¼) ist die Größe des gefalzten Teils bezogen auf den ungefalzten Bogen.
+              Ein Einzelblatt (F2-1) hat keinen Falz.
+            </p>
+          </section>
+
+          <section id="help-assembly">
+            <h3>Zusammentragen &amp; Endverarbeitung</h3>
+            <p>Nur in der Ansicht <span class="key">Endprodukt</span>. Die gefalzten Bogen liegen zunächst rechts bereit.</p>
+            <ul>
+              <li><strong>Sammelheftung</strong>: Jeder Bogen wird aufgeschlagen und um die bereits liegenden Bogen gelegt – der innerste zuerst, Bogen 1 zuletzt außen. Anschließend wird das Produkt geschlossen; die inneren Bogen stehen dabei am Vorderschnitt über (Verdrängung, überhöht dargestellt). Dann wird mit zwei Drahtklammern geheftet und der Überstand abgeschnitten.</li>
+              <li><strong>Klebebindung</strong>: Die Bogen werden der Reihe nach aufeinandergelegt (Bogen 1 oben) und am Rücken verklebt.</li>
+            </ul>
+            <p>
+              <span class="key">▶ Zusammentragen abspielen</span> startet bzw. hält an, <span class="key">⏮ Zurück auf Anfang</span>
+              legt die Bogen wieder bereit, der Schieberegler stellt jeden Zwischenstand ein.
+            </p>
+          </section>
+
+          <section id="help-browse">
+            <h3>Blättern</h3>
+            <p>
+              Möglich nach dem letzten Falz eines Bogens oder nach dem Zusammentragen im Endprodukt. Beim ersten Blättern
+              dreht sich die Darstellung in die <strong>Leseansicht</strong>: Bund links, Kopf oben.
+            </p>
+            <ul>
+              <li><span class="key">Vor ▶</span> / <span class="key">◀ Zurück</span> blättern ein Blatt weiter bzw. zurück.</li>
+              <li><span class="key">⏮ Anfang</span> / <span class="key">Ende ⏭</span> springen an den Anfang bzw. ans Ende.</li>
+              <li>Tastatur: <span class="key">→</span> <span class="key">←</span> <span class="key">Pos1</span> <span class="key">Ende</span>.</li>
+              <li>Ein Klick auf die rechte Seite blättert vor, ein Klick auf die linke Seite zurück.</li>
+              <li>Über den Schaltern steht die aufgeschlagene Doppelseite, z. B. „Seite 34 | 35“.</li>
+            </ul>
+            <p>Wird wieder aufgefalzt oder zurückgespult, klappt das Produkt zuerst zu.</p>
+          </section>
+
+          <section id="help-schema">
+            <h3>Ausschuss lesen</h3>
+            <p>Das Register zeigt Vorder- und Rückseite des gewählten Bogens. Mit den farbigen Schaltern oben wechseln Sie den Bogen.</p>
+            <ul>
+              <li>Jedes Feld trägt eine Seite. Die Zahl ist die Seitenzahl im Endprodukt.</li>
+              <li>Der <strong>orange Balken</strong> markiert den Kopf der Seite. Kopfstehende Zahlen sind um 180° gedreht („Kopf an Kopf“); bei Schemata mit waagrechtem Bund stehen die Seiten um 90° gedreht im Feld.</li>
+              <li>Der <strong>violette Streifen</strong> markiert den Bund (Bindekante) der Seite.</li>
+              <li>Der <strong>graue gestrichelte Rahmen</strong> ist der Satzspiegel. Bei Sammelheftung ist er um die Verdrängung zum Bund verschoben (4-fach überhöht dargestellt); der Betrag steht über dem Schema.</li>
+              <li><strong>Rote gestrichelte Linien</strong> sind die Falzlinien; die Nummer im Kreis ist der Falzschritt. Der nächste Falz ist hervorgehoben.</li>
+              <li>Die Rückseite ist umgeschlagen dargestellt: Was auf der Vorderseite links liegt, liegt auf der Rückseite rechts.</li>
+              <li>Zahlen wie 6, 9, 16 oder 66 sind unterstrichen, damit sie auch kopfstehend eindeutig sind.</li>
+            </ul>
+          </section>
+
+          <section id="help-overview-table">
+            <h3>Bogenübersicht</h3>
+            <p>
+              Listet alle Bogen mit Falzschema, Seiten, Lage im Produkt und Verdrängung. Ein Klick auf eine Zeile zeigt
+              den Ausschuss dieses Bogens.
+            </p>
+          </section>
+
+          <section id="help-catalog">
+            <h3>CIP4-Falzkatalog</h3>
+            <p>
+              Alle 89 Falzschemata aus dem CIP4 „Pagination Catalog“. Der Name (z. B. F16-7) bedeutet: 16 Seiten,
+              Schema Nr. 7. Raster und Falzfolge stammen aus dem Katalog, der Ausschuss wird daraus berechnet.
+            </p>
+            <ul>
+              <li><strong>Seiten</strong>-Filter oben rechts schränkt die Liste ein.</li>
+              <li>Spalten: Name, Falzart, Seiten, Raster (nebeneinander × übereinander), Anzahl Falze, Falzfolge und Eignung für Sammelheftung.</li>
+              <li><strong>Falzfolge</strong>: ↑ = linker bzw. unterer Teil darüber, ↓ = darunter, Bruch = Größe des gefalzten Teils, „+“ = Wechsel zwischen senkrechten und waagrechten Falzen. Der erste Falz ist immer senkrecht.</li>
+              <li>Ein Klick auf eine Zeile zeigt rechts die Details: Falze im Klartext, Bund, Eignung für Sammelheftung und den Ausschuss von Vorder- und Rückseite.</li>
+              <li><span class="key">Als Produkt übernehmen und falzen</span> setzt das Produkt auf genau diesen einen Bogen und wechselt zur Falzanimation.</li>
+              <li><span class="key">JSON herunterladen</span> speichert den Katalog mit allen Angaben (Falzlinien, Richtungen, Ausschuss) zur Verwendung in anderen Programmen.</li>
+              <li>Grau und kursiv: Schemata, die im CIP4-Katalog als nicht unterstützt markiert sind (F6-3, F6-6, F6-7).</li>
+            </ul>
+          </section>
+
+          <section id="help-keys">
+            <h3>Tastatur</h3>
+            <table class="help-keys">
+              <tr><td><span class="key">F1</span></td><td>Hilfe zum aktuellen Bereich öffnen</td></tr>
+              <tr><td><span class="key">Esc</span></td><td>Hilfe schließen</td></tr>
+              <tr><td><span class="key">→</span> / <span class="key">←</span></td><td>vor- / zurückblättern</td></tr>
+              <tr><td><span class="key">Pos1</span> / <span class="key">Ende</span></td><td>an den Anfang / ans Ende blättern</td></tr>
+            </table>
+          </section>
+
+          <section id="help-terms">
+            <h3>Begriffe</h3>
+            <dl>
+              <dt>Ausschuss</dt><dd>Anordnung der Seiten auf dem Druckbogen, so dass sie nach Falzen und Beschneiden in der richtigen Reihenfolge stehen.</dd>
+              <dt>Falzbogen / Falzschema</dt><dd>Ein Druckbogen und die Art, wie er gefalzt wird (Anzahl, Lage, Reihenfolge und Richtung der Falze).</dd>
+              <dt>Schöndruck / Widerdruck</dt><dd>Vorderseite / Rückseite des Druckbogens.</dd>
+              <dt>Bund</dt><dd>Bindekante bzw. Rücken; beim gefalzten Bogen der letzte Falz.</dd>
+              <dt>Kopf, Fuß, Vorderschnitt</dt><dd>Obere, untere und dem Bund gegenüberliegende Kante der Seite.</dd>
+              <dt>Verdrängung</dt><dd>Bei Sammelheftung stehen innere Bogen am Vorderschnitt über; der Inhalt wird zum Ausgleich zum Bund verschoben.</dd>
+              <dt>Kreuzbruch-, Parallel-, Wickel-, Zickzackfalz</dt><dd>Falzarten: Falze rechtwinklig zueinander bzw. parallel; beim Wickelfalz in dieselbe, beim Zickzackfalz (Leporello) in wechselnde Richtung.</dd>
+              <dt>CIP4 / JDF</dt><dd>Internationale Organisation der Druckindustrie bzw. ihr Datenformat (Job Definition Format), aus dem der Falzkatalog stammt.</dd>
+            </dl>
+          </section>
+        </div>
+      </div>
+    </dialog>
     <script type="module" src="src/app.js"></script>
   </body>
 </html>

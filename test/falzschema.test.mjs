@@ -16,6 +16,7 @@ import {
   signatureAxisZ,
   openPages,
   pageRanges,
+  validPageTotal,
 } from '../src/falzschema.js';
 
 // Rotation der Seitenzahl: '' aufrecht, 'v' kopfstehend, '>' 90° im Uhrzeigersinn, '<' 90° gegen
@@ -141,6 +142,13 @@ test('Vorschlag für die Bogenaufteilung', () => {
     { count: 1, scheme: 'F4-1' },
   ]);
   assert.deepEqual(suggestGroups(16), [{ count: 1, scheme: 'F16-7' }]);
+  // Klebebindung: Rest von 2 Seiten als Einzelblatt F2-1
+  assert.deepEqual(suggestGroups(78, 'perfect'), [
+    { count: 4, scheme: 'F16-7' },
+    { count: 1, scheme: 'F8-7' },
+    { count: 1, scheme: 'F4-1' },
+    { count: 1, scheme: 'F2-1' },
+  ]);
 });
 
 test('Produktion 76 Seiten = 4×F16-6 + 1×F8-7 + 1×F4-1, beide Bindearten', () => {
@@ -188,4 +196,35 @@ test('Produktion: Fehlermeldungen', () => {
 
 test('pageRanges', () => {
   assert.equal(pageRanges([1, 2, 3, 7, 8, 10]), '1–3, 7–8, 10');
+});
+
+test('Seitenumfang: Sammelheftung Vielfaches von 4, Klebebindung Vielfaches von 2', () => {
+  assert.ok(validPageTotal(76, 'saddle'));
+  assert.ok(!validPageTotal(78, 'saddle'));
+  assert.ok(validPageTotal(78, 'perfect'));
+  assert.ok(validPageTotal(2, 'perfect'));
+  assert.ok(!validPageTotal(77, 'perfect'));
+  assert.ok(!validPageTotal(258, 'perfect'));
+});
+
+test('Klebebindung mit Einzelblättern (F2-1)', () => {
+  const prod = computeProduction(
+    [
+      { count: 1, scheme: 'F16-7' },
+      { count: 3, scheme: 'F2-1' },
+    ],
+    { binding: 'perfect', pages: 22 },
+  );
+  assert.deepEqual(prod.errors, []);
+  assert.deepEqual(prod.sheets.map((s) => s.pageRanges), ['1–16', '17–18', '19–20', '21–22']);
+  for (const leaf of prod.leaves) {
+    const m = bookLeafMatrix(prod, leaf);
+    const p = prod.sheets[leaf.sheet].panels[leaf.panel];
+    assert.equal(transformVector(m, [0, 0, 1])[2] > 0 ? p.front.page : p.back.page, 2 * leaf.g + 1);
+  }
+  // Sammelheftung mit Einzelblatt geht nicht
+  assert.match(
+    computeProduction([{ count: 1, scheme: 'F2-1' }], { binding: 'saddle' }).errors[0],
+    /Sammelheftung/,
+  );
 });

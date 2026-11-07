@@ -485,9 +485,11 @@ export const BINDINGS = {
 
 /**
  * Schlägt eine Aufteilung einer Seitenzahl auf Falzbogen vor (möglichst große
- * Bogen aus 16, 8, 4 Seiten), z. B. 76 -> 4×16 + 1×8 + 1×4.
+ * Bogen aus 16, 8, 4 Seiten), z. B. 76 -> 4×16 + 1×8 + 1×4. Bei Klebebindung
+ * können zusätzlich Einzelblätter (F2-1, 2 Seiten) verwendet werden.
  */
-export function suggestGroups(pages, sizes = [16, 8, 4]) {
+export function suggestGroups(pages, binding = 'saddle') {
+  const sizes = binding === 'perfect' ? [16, 8, 4, 2] : [16, 8, 4];
   const groups = [];
   let rest = pages;
   for (const size of sizes) {
@@ -498,6 +500,16 @@ export function suggestGroups(pages, sizes = [16, 8, 4]) {
     }
   }
   return groups;
+}
+
+/**
+ * Zulässiger Seitenumfang: Sammelheftung braucht Doppelblätter (Vielfaches von 4),
+ * Klebebindung erlaubt auch Einzelblätter (Vielfaches von 2).
+ */
+export const pageStep = (binding) => (binding === 'perfect' ? 2 : 4);
+export function validPageTotal(pages, binding, max = 256) {
+  const step = pageStep(binding);
+  return Number.isInteger(pages) && pages >= step && pages <= max && pages % step === 0;
 }
 
 /**

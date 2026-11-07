@@ -35,9 +35,16 @@ npm run build
 
 ## Funktionen
 
-- **Drei Register**: „Animation“ (links die Steuerung mit eigenem Scrollbalken,
-  rechts das 3D-Bild), „Ausschuss & Bogenübersicht“ und „CIP4-Falzkatalog“.
-- **Produkt**: Seitenumfang frei eingeben (Vielfaches von 4, bis 256 Seiten),
+- **Drei Register**: „Grunddaten & Grafik“ (links die Steuerung mit eigenem
+  Scrollbalken, rechts das 3D-Bild), „Ausschuss & Bogenübersicht“ und
+  „CIP4-Falzkatalog“.
+- **Hilfe**: Schalter „? Hilfe“ oben rechts bzw. Taste F1 öffnet die
+  Bedienungsanleitung beim Thema des aktuellen Bereichs (kontextsensitiv:
+  Register, Ansicht, fokussiertes Eingabefeld); die „?“-Schalter an den
+  Abschnitten führen direkt zum jeweiligen Thema.
+- **Produkt**: Seitenumfang frei eingeben (bis 256 Seiten; Sammelheftung:
+  Vielfaches von 4, Klebebindung: Vielfaches von 2, da auch Einzelblätter
+  F2-1 verklebt werden können),
   Bindeart **Sammelheftung** oder **Klebebindung**, bei Sammelheftung die
   Papierstärke für die Verdrängung.
 - **Bogenaufteilung**: Gruppen aus *Anzahl × Seiten je Bogen × Falzschema*, z. B.
@@ -150,3 +157,7 @@ bei Sammelheftung und Klebebindung.
 - `scripts/build-single.mjs` – erzeugt die Einzeldatei `dist/Falzschema.html`
 - `dist/Falzschema.html` – fertige Einzeldatei zum Weitergeben
 - `vendor/three/` – Three.js r170 (MIT-Lizenz)
+
+---
+
+Copyright © 1990-2026 rs Softwareentwicklung OG, 2301 Groß-Enzersdorf, All rights reserved.

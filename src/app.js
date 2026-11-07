@@ -9,6 +9,8 @@ import {
   computeSignature,
   computeProduction,
   suggestGroups,
+  validPageTotal,
+  pageStep,
   describeEntry,
   foldText,
   sheetLayout,
@@ -611,12 +613,19 @@ $('page-total').addEventListener('change', (e) => {
   product.pages = Number(e.target.value);
   // Passt die bisherige Aufteilung nicht mehr, einen Vorschlag machen
   const sum = product.groups.reduce((s, g) => s + g.count * catalogEntry(g.scheme).pages, 0);
-  if (sum !== product.pages && validTotal(product.pages)) product.groups = suggestGroups(product.pages);
+  if (sum !== product.pages && validTotal(product.pages)) product.groups = suggestGroups(product.pages, product.binding);
   renderGroups();
   tryApply();
 });
+function updatePageInput() {
+  const step = pageStep(product.binding);
+  $('page-total').step = String(step);
+  $('page-total').min = String(step);
+}
+
 $('binding').addEventListener('change', (e) => {
   product.binding = e.target.value;
+  updatePageInput();
   renderGroups();
   tryApply();
 });
@@ -627,7 +636,7 @@ $('caliper').addEventListener('change', (e) => {
   tryApply();
 });
 
-const validTotal = (p) => Number.isInteger(p) && p >= 4 && p <= MAX_PAGES && p % 4 === 0;
+const validTotal = (p) => validPageTotal(p, product.binding, MAX_PAGES);
 
 const schemesFor = (pages) => CIP4_CATALOG.filter((e) => e.pages === pages && !e.unsupported);
 const saddleOk = (id) => computeSignature(id, sigOptions()).saddleCompatible;
@@ -690,7 +699,7 @@ $('btn-group-add').addEventListener('click', () => {
 });
 $('btn-group-suggest').addEventListener('click', () => {
   if (!validTotal(product.pages)) return;
-  product.groups = suggestGroups(product.pages);
+  product.groups = suggestGroups(product.pages, product.binding);
   renderGroups();
   tryApply();
 });
@@ -701,7 +710,13 @@ function tryApply() {
   const sum = product.groups.reduce((s, g) => s + g.count * catalogEntry(g.scheme).pages, 0);
   const sheets = product.groups.reduce((s, g) => s + g.count, 0);
   const errors = [];
-  if (!validTotal(product.pages)) errors.push(`Der Seitenumfang muss ein Vielfaches von 4 zwischen 4 und ${MAX_PAGES} sein.`);
+  if (!validTotal(product.pages)) {
+    const step = pageStep(product.binding);
+    errors.push(
+      `Der Seitenumfang muss bei ${BINDINGS[product.binding]} ein Vielfaches von ${step} zwischen ${step} und ${MAX_PAGES} sein` +
+        (product.binding === 'saddle' && product.pages % 2 === 0 ? ' (Einzelblätter nur bei Klebebindung).' : '.'),
+    );
+  }
   else errors.push(...computeAll());
   status.classList.toggle('error', errors.length > 0);
   if (errors.length) {
@@ -739,8 +754,10 @@ function renderProductTexts() {
   const maxCreep = Math.max(...production.sheets.map((s) => s.creep));
   $('product-info').textContent =
     binding === 'saddle'
-      ? `${n} Bogen werden ineinandergesteckt und am Rücken geheftet. Verdrängung: 0 bis ${fmtMm(maxCreep)} (innerster Bogen).`
-      : `${n} Bogen werden nacheinander zusammengetragen und am Rücken verklebt. Keine Verdrängung.`;
+      ? n === 1
+        ? 'Der Bogen wird am Rücken geheftet. Bei nur einem Bogen entsteht keine Verdrängung zwischen Bogen.'
+        : `${n} Bogen werden ineinandergesteckt und am Rücken geheftet. Verdrängung: 0 bis ${fmtMm(maxCreep)} (innerster Bogen).`
+      : `${n} Bogen werden nacheinander zusammengetragen und am Rücken verklebt (auch Einzelblätter F2-1 möglich). Keine Verdrängung.`;
   $('assembly-intro').textContent =
     binding === 'saddle'
       ? 'Sammelheftung: Die gefalzten Bogen werden aufgeschlagen und ineinandergesteckt – der innerste Bogen zuerst, Bogen 1 zuletzt außen. Dann wird geschlossen, geheftet und am Vorderschnitt beschnitten.'
@@ -1004,7 +1021,7 @@ $('btn-page-first').addEventListener('click', () => turnTo(0));
 $('btn-page-last').addEventListener('click', () => turnTo(leafCount()));
 
 document.addEventListener('keydown', (e) => {
-  if (activeTab !== 'anim' || e.target.closest('input, select, textarea') || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (activeTab !== 'anim' || helpDialog?.open || e.target.closest('input, select, textarea') || e.altKey || e.ctrlKey || e.metaKey) return;
   const actions = {
     ArrowRight: () => turnTo(currentLeaf() + 1),
     ArrowLeft: () => turnTo(currentLeaf() - 1),
@@ -1052,7 +1069,8 @@ function updateUi(pose) {
     }
     const moving = Math.abs(state.target - t) > 1e-6;
     let text;
-    if (t <= 1e-6 && folds) text = `Flacher Druckbogen ${view.sheet + 1} (${sig.id}) – ${sig.entry.pages} Seiten auf ${sig.leaves} Feldern je Seite.`;
+    if (!folds) text = `Einzelblatt ${view.sheet + 1} (${sig.id}) – ohne Falz, 2 Seiten (nur bei Klebebindung).`;
+    else if (t <= 1e-6) text = `Flacher Druckbogen ${view.sheet + 1} (${sig.id}) – ${sig.entry.pages} Seiten auf ${sig.leaves} Feldern je Seite.`;
     else if (state.target < t && state.book > 1e-6) text = 'Bogen wird zugeklappt …';
     else if (t >= folds - 1e-6 && isBrowsing()) text = 'Blättern im gefalzten Bogen (Leseansicht: Bund links, Kopf oben; gedanklich beschnitten).';
     else if (t >= folds - 1e-6)
@@ -1123,6 +1141,60 @@ function updateUi(pose) {
 }
 
 // ---------------------------------------------------------------------------
+// Hilfe (kontextsensitiv)
+// ---------------------------------------------------------------------------
+
+const helpDialog = $('help');
+
+/** Thema passend zum aktuellen Bereich: fokussiertes Element, sonst Register und Ansicht. */
+function contextTopic() {
+  const focused = document.activeElement?.closest?.('[data-help]');
+  if (focused && !helpDialog.contains(focused)) return focused.dataset.help;
+  if (activeTab === 'schema') return 'schema';
+  if (activeTab === 'catalog') return 'catalog';
+  if (view.mode === 'book') return canBrowse() ? 'browse' : 'assembly';
+  return canBrowse() && foldsOf() > 0 ? 'browse' : 'folding';
+}
+
+function openHelp(topic = contextTopic()) {
+  const id = topic === 'overview-table' ? 'help-overview-table' : `help-${topic}`;
+  const target = $(id) ?? $('help-overview');
+  if (!helpDialog.open) helpDialog.showModal();
+  helpDialog.querySelectorAll('.help-content section').forEach((sec) => sec.classList.toggle('current', sec === target));
+  helpDialog.querySelectorAll('.help-toc a').forEach((a) => {
+    const active = a.getAttribute('href') === `#${target.id}`;
+    a.classList.toggle('active', active);
+    if (active) a.parentElement.scrollLeft = a.offsetLeft - 16; // schmale Ansicht: Thema im Inhaltsverzeichnis zeigen
+  });
+  $('help-content').scrollTop = target.offsetTop - $('help-content').offsetTop - 8;
+}
+
+$('btn-help').addEventListener('click', () => openHelp());
+$('btn-help-close').addEventListener('click', () => helpDialog.close());
+helpDialog.addEventListener('click', (e) => {
+  if (e.target === helpDialog) helpDialog.close(); // Klick auf den Hintergrund
+});
+helpDialog.querySelectorAll('.help-toc a').forEach((a) =>
+  a.addEventListener('click', (e) => {
+    e.preventDefault();
+    openHelp(a.dataset.topic);
+  }),
+);
+// „?“-Schalter an den Abschnitten (Bogenübersicht hat ein eigenes Thema)
+document.querySelectorAll('.help-btn').forEach((b) =>
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openHelp(b.dataset.topic === 'overview' ? 'overview-table' : b.dataset.topic);
+  }),
+);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'F1') {
+    e.preventDefault();
+    openHelp();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Register „CIP4-Falzkatalog“
 // ---------------------------------------------------------------------------
 
@@ -1189,6 +1261,7 @@ function renderCatalogDetail() {
     if (product.binding === 'saddle' && !sig.saddleCompatible) product.binding = 'perfect';
     $('page-total').value = String(product.pages);
     $('binding').value = product.binding;
+    updatePageInput();
     renderGroups();
     if (tryApply()) {
       selectView('sheet', 0);
@@ -1309,6 +1382,7 @@ function frame() {
 }
 
 // Start
+updatePageInput();
 renderGroups();
 tryApply();
 selectView('sheet', 0);
@@ -1334,6 +1408,7 @@ window.falzschema = {
     $('page-total').value = String(product.pages);
     $('binding').value = product.binding;
     $('caliper').value = product.caliper.toFixed(2);
+    updatePageInput();
     renderGroups();
     return tryApply();
   },
