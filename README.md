@@ -42,6 +42,10 @@ npm run build
   Bedienungsanleitung beim Thema des aktuellen Bereichs (kontextsensitiv:
   Register, Ansicht, fokussiertes Eingabefeld); die „?“-Schalter an den
   Abschnitten führen direkt zum jeweiligen Thema.
+- **Endformat**: DIN A3–A7 bzw. B4–B6, jeweils hoch oder quer, oder manuell
+  Breite × Höhe in mm. Bestimmt die Proportionen der Seiten auf dem Bogen (3D und
+  Ausschuss), das Bogenformat (netto) in der Bogenübersicht, die Verdrängung und
+  die Umschlagmaße.
 - **Produkt**: Seitenumfang frei eingeben (bis 2000 Seiten, bis 1000 Bogen je Gruppe; Sammelheftung:
   Vielfaches von 4, Klebebindung: Vielfaches von 2, da auch Einzelblätter
   F2-1 verklebt werden können),

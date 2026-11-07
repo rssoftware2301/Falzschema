@@ -620,8 +620,41 @@ export function bookAxisZ(production) {
 // Rückenstärke und Umschlag (Klebebindung)
 // ---------------------------------------------------------------------------
 
-/** Endformat in mm (Annahme DIN A5, wie in der Darstellung). */
-export const PAGE_FORMAT_MM = Object.freeze({ width: 148, height: 210 });
+/** DIN-Formate (DIN EN ISO 216), Breite × Höhe im Hochformat in mm. */
+export const DIN_FORMATS = Object.freeze({
+  A3: [297, 420],
+  A4: [210, 297],
+  A5: [148, 210],
+  A6: [105, 148],
+  A7: [74, 105],
+  B4: [250, 353],
+  B5: [176, 250],
+  B6: [125, 176],
+});
+
+/** Standard-Endformat: DIN A5 hoch. */
+export const PAGE_FORMAT_MM = Object.freeze({ width: 148, height: 210, label: 'DIN A5 hoch' });
+
+/**
+ * Endformat aus der Auswahl ermitteln.
+ * @param {{key:string, orientation?:'portrait'|'landscape', width?:number, height?:number}} sel
+ *   key = DIN-Format (z. B. "A5") oder "custom" (manuelle Eingabe width × height)
+ */
+export function resolveFormat(sel) {
+  if (sel.key === 'custom') {
+    const width = Number(sel.width);
+    const height = Number(sel.height);
+    if (!(width >= 20 && width <= 1000 && height >= 20 && height <= 1000)) {
+      throw new Error('Endformat: Breite und Höhe müssen zwischen 20 und 1000 mm liegen');
+    }
+    return { width, height, label: `${width} × ${height} mm (manuell)` };
+  }
+  const din = DIN_FORMATS[sel.key];
+  if (!din) throw new Error(`Unbekanntes Format: ${sel.key}`);
+  const landscape = sel.orientation === 'landscape';
+  const [w, h] = landscape ? [din[1], din[0]] : din;
+  return { width: w, height: h, label: `DIN ${sel.key} ${landscape ? 'quer' : 'hoch'}` };
+}
 
 /** Stärke des Buchblocks in mm: Anzahl Blätter × Papierstärke. */
 export const blockThickness = (leaves, caliper) => round(leaves * caliper);

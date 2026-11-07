@@ -39,6 +39,39 @@
         <section data-help="product">
           <h2>Produkt <button class="help-btn" data-topic="product" title="Hilfe: Produkt">?</button></h2>
           <label class="field">
+            <span>Endformat</span>
+            <span class="format-row">
+              <select id="format-key" aria-label="Endformat">
+                <optgroup label="DIN A">
+                  <option value="A3">DIN A3 (297 × 420)</option>
+                  <option value="A4">DIN A4 (210 × 297)</option>
+                  <option value="A5" selected>DIN A5 (148 × 210)</option>
+                  <option value="A6">DIN A6 (105 × 148)</option>
+                  <option value="A7">DIN A7 (74 × 105)</option>
+                </optgroup>
+                <optgroup label="DIN B">
+                  <option value="B4">DIN B4 (250 × 353)</option>
+                  <option value="B5">DIN B5 (176 × 250)</option>
+                  <option value="B6">DIN B6 (125 × 176)</option>
+                </optgroup>
+                <option value="custom">manuell …</option>
+              </select>
+              <select id="format-orientation" aria-label="Ausrichtung">
+                <option value="portrait" selected>hoch</option>
+                <option value="landscape">quer</option>
+              </select>
+            </span>
+          </label>
+          <label class="field" id="format-custom" hidden>
+            <span>Breite × Höhe</span>
+            <span class="with-unit">
+              <input id="format-width" type="number" min="20" max="1000" step="1" value="148" aria-label="Breite in mm" />
+              ×
+              <input id="format-height" type="number" min="20" max="1000" step="1" value="210" aria-label="Höhe in mm" />
+              mm
+            </span>
+          </label>
+          <label class="field">
             <span>Seitenumfang</span>
             <span class="with-unit"><input id="page-total" type="number" min="4" max="2000" step="4" value="16" /> Seiten</span>
           </label>
@@ -198,7 +231,7 @@
         <h2 class="overview-title">Bogenübersicht <button class="help-btn" data-topic="overview" title="Hilfe: Bogenübersicht">?</button> <span class="hint inline">– Zeile anklicken, um den Bogen anzuzeigen</span></h2>
         <table class="overview">
           <thead>
-            <tr><th>Bogen</th><th>Falzschema</th><th>Seiten</th><th>Lage im Produkt</th><th>Verdrängung</th></tr>
+            <tr><th>Bogen</th><th>Falzschema</th><th>Bogenformat</th><th>Seiten</th><th>Lage im Produkt</th><th>Verdrängung</th></tr>
           </thead>
           <tbody id="sheet-overview"></tbody>
         </table>
@@ -227,7 +260,7 @@
             <figcaption>Innenseite (umgedreht): rechte Klappe · U2 · Rücken · U3 · linke Klappe</figcaption>
           </figure>
           <p class="hint">
-            Maßstabsgetreue Darstellung in mm, Endformat 148 × 210 mm (DIN A5). Gestrichelte Linien = Rill- bzw. Falzlinien.
+            Maßstabsgetreue Darstellung in mm, Endformat <span id="cover-format-note">148 × 210 mm</span>. Gestrichelte Linien = Rill- bzw. Falzlinien.
             Beschnittzugabe ist nicht enthalten.
           </p>
         </div>
@@ -324,6 +357,14 @@
           <section id="help-product">
             <h3>Produkt</h3>
             <dl>
+              <dt>Endformat</dt>
+              <dd>
+                Format der fertigen (beschnittenen) Seite. Wählen Sie ein DIN-Format der Reihe A oder B und
+                <strong>hoch</strong> oder <strong>quer</strong>, oder <strong>manuell …</strong> für eine freie Eingabe
+                von Breite × Höhe in mm. Das Endformat bestimmt die Proportionen der Seiten auf dem Bogen (3D und
+                Ausschuss), die Größe der Bogen in mm, die Verdrängung und die Maße des Umschlags. Bei Schemata mit
+                waagrechtem Bund (z. B. F8-7) steht die Seite im Feld um 90° gedreht – das Feld ist dann entsprechend quer.
+              </dd>
               <dt>Seitenumfang</dt>
               <dd>
                 Gesamtzahl der Seiten des Endprodukts (bis 2000). Bei <strong>Sammelheftung</strong> muss die Zahl ein
@@ -445,7 +486,7 @@
           <section id="help-overview-table">
             <h3>Bogenübersicht</h3>
             <p>
-              Listet alle Bogen mit Falzschema, Seiten, Lage im Produkt und Verdrängung. Ein Klick auf eine Zeile zeigt
+              Listet alle Bogen mit Falzschema, Bogenformat (netto, ohne Beschnitt), Seiten, Lage im Produkt und Verdrängung. Ein Klick auf eine Zeile zeigt
               den Ausschuss dieses Bogens.
             </p>
           </section>

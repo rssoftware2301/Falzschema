@@ -27,7 +27,7 @@ import {
   creases,
   rotation,
   computeCover,
-  PAGE_FORMAT_MM,
+  resolveFormat,
 } from './falzschema.js';
 import { buildCatalogExport } from './catalog-export.js';
 
@@ -35,16 +35,18 @@ import { buildCatalogExport } from './catalog-export.js';
 // Konstanten
 // ---------------------------------------------------------------------------
 
-const PAGE_W = 70; // Endformat in Darstellungseinheiten (Verhältnis DIN A, Leseansicht)
-const PAGE_H = 99;
-const REF_WIDTH = 4 * PAGE_W; // Bezugsbreite für die automatische Zoomanpassung
+// Endformat in Darstellungseinheiten (Leseansicht): die längere Seite hat 99 Einheiten,
+// das Verhältnis folgt dem gewählten Endformat (siehe applyFormat)
+let PAGE_W = 70;
+let PAGE_H = 99;
+let MM_PER_UNIT = 148 / 70;
+const REF_WIDTH = 280; // Bezugsbreite für die automatische Zoomanpassung
 const MAX_PAGES = 2000; // z. B. 572 Seiten = 286 Einzelblätter im Digitaldruck
 const MAX_GROUP_COUNT = 1000; // Bogen je Bogengruppe
 const CHIP_LIMIT = 12; // mehr Bogen: Auswahlliste statt Schaltflächen
 // Papierstärke in der Darstellung (überzeichnet; bei vielen Blättern dünner)
 const displayThickness = (pages) =>
   pages <= 32 ? 1.2 : pages <= 64 ? 0.75 : pages <= 128 ? 0.5 : pages <= 256 ? 0.3 : pages <= 640 ? 0.2 : 0.1;
-const MM_PER_UNIT = 148 / PAGE_W; // Endformat DIN A5 (148 × 210 mm)
 const CREEP_EXAG = 4; // Verdrängung in der Darstellung 4-fach überhöht (sonst kaum sichtbar)
 const MAX_CREEP_UNITS = 8;
 
@@ -71,6 +73,7 @@ const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '
 // ---------------------------------------------------------------------------
 
 const product = {
+  format: { key: 'A5', orientation: 'portrait', width: 148, height: 210 },
   cover: { enabled: false, caliper: 0.3, flapLeft: 0, flapRight: 0 },
   pages: 16,
   binding: 'saddle',
@@ -80,6 +83,16 @@ const product = {
 let production;
 let BOOK_AXIS_Z = 0;
 let coverData = null; // Maße des Umschlags (mm) oder null
+let format = resolveFormat(product.format); // Endformat in mm { width, height, label }
+
+/** Endformat übernehmen: Darstellungsmaße der Seite daraus ableiten. */
+function applyFormat() {
+  format = resolveFormat(product.format);
+  const k = 99 / Math.max(format.width, format.height);
+  PAGE_W = format.width * k;
+  PAGE_H = format.height * k;
+  MM_PER_UNIT = 1 / k;
+}
 
 /** Umschlag nur bei Klebebindung. */
 const hasCover = () => product.binding === 'perfect' && product.cover.enabled;
@@ -168,7 +181,7 @@ function renderSheetSvg(svg, sig, panels, side, { shift = 0 } = {}) {
       const content = svgEl('g', { transform: `translate(${spineLeft ? -shift : shift} 0)` }, g);
       svgEl('rect', { x: px + pw * 0.1, y: py + ph * 0.13, width: pw * 0.8, height: ph * 0.78, class: 'satzspiegel' }, content);
       svgEl('rect', { x: cx - pw * 0.26, y: py + ph * 0.05, width: pw * 0.52, height: 4, rx: 1.5, class: 'page-head' }, content);
-      const fontSize = pw * (cell.page >= 100 ? 0.34 : 0.43);
+      const fontSize = Math.min(pw * (cell.page >= 100 ? 0.34 : 0.43), ph * 0.34);
       const t = svgEl('text', { x: cx, y: cy, class: 'page-no', style: `font-size:${fontSize}px` }, content);
       t.textContent = cell.page;
       if (needsUnderline(cell.page)) {
@@ -303,7 +316,7 @@ function pageTexture({ page, rotation, side, shift, label, cellW, cellH, scale }
 }
 
 const FACE_OFFSET = 0.08; // Abstand Vorder-/Rückseite eines Blattes (kleiner als jede Lagenstärke)
-const spineStripGeometry = new THREE.PlaneGeometry(1, PAGE_H);
+const spineStripGeometry = new THREE.PlaneGeometry(1, 1);
 const spineStripMaterial = new THREE.MeshStandardMaterial({ color: 0xf1f4f8, roughness: 0.92, side: THREE.DoubleSide });
 const geometryCache = new Map();
 function cellGeometry(w, h) {
@@ -395,7 +408,7 @@ const staples = [0, 1].map(() => {
   sheetGroup.add(mesh);
   return mesh;
 });
-const glue = new THREE.Mesh(new THREE.BoxGeometry(2.2, PAGE_H, 1), new THREE.MeshStandardMaterial({ color: 0xe9d9a8, roughness: 0.6 }));
+const glue = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1, 1), new THREE.MeshStandardMaterial({ color: 0xe9d9a8, roughness: 0.6 }));
 sheetGroup.add(glue);
 
 const tmpMatrix = new THREE.Matrix4();
@@ -728,7 +741,7 @@ function updateFastening(pose) {
   });
   glue.visible = show && !saddle;
   glue.position.set(-1.1, PAGE_H / 2, BOOK_AXIS_Z);
-  glue.scale.set(1, 1, Math.max(0.001, depth * (pose?.fasten ?? 0)));
+  glue.scale.set(1, PAGE_H, Math.max(0.001, depth * (pose?.fasten ?? 0)));
 }
 
 function updateSpineStrips(protrusions) {
@@ -741,7 +754,7 @@ function updateSpineStrips(protrusions) {
     const along = PAGE_W / 2 + w / 2;
     strip.position.set(-foreLocal.x * along, -foreLocal.y * along, 0);
     strip.rotation.z = Math.abs(foreLocal.y) > 0.5 ? Math.PI / 2 : 0;
-    strip.scale.set(w, 1, 1);
+    strip.scale.set(w, PAGE_H, 1);
   }
 }
 
@@ -816,19 +829,57 @@ $('caliper').addEventListener('change', (e) => {
   tryApply();
 });
 
+// --- Endformat ---
+function updateFormatInputs() {
+  const custom = product.format.key === 'custom';
+  $('format-key').value = product.format.key;
+  $('format-orientation').value = product.format.orientation;
+  $('format-orientation').hidden = custom;
+  $('format-custom').hidden = !custom;
+  $('format-width').value = String(product.format.width);
+  $('format-height').value = String(product.format.height);
+}
+$('format-key').addEventListener('change', (e) => {
+  const key = e.target.value;
+  if (key === 'custom') {
+    // manuelle Eingabe mit dem bisherigen Format vorbelegen
+    product.format = { ...product.format, key, width: format.width, height: format.height };
+  } else {
+    product.format = { ...product.format, key };
+  }
+  updateFormatInputs();
+  tryApply();
+});
+$('format-orientation').addEventListener('change', (e) => {
+  product.format = { ...product.format, orientation: e.target.value };
+  tryApply();
+});
+for (const id of ['format-width', 'format-height']) {
+  $(id).addEventListener('change', () => {
+    product.format = {
+      ...product.format,
+      width: Number(String($('format-width').value).replace(',', '.')),
+      height: Number(String($('format-height').value).replace(',', '.')),
+    };
+    tryApply();
+  });
+}
+
 $('cover-enabled').addEventListener('change', (e) => {
   product.cover.enabled = e.target.checked;
   tryApply();
 });
 for (const [id, field, max] of [
   ['cover-caliper', 'caliper', 2],
-  ['flap-right', 'flapRight', PAGE_FORMAT_MM.width],
-  ['flap-left', 'flapLeft', PAGE_FORMAT_MM.width],
+  ['flap-right', 'flapRight', null],
+  ['flap-left', 'flapLeft', null],
 ]) {
   $(id).addEventListener('change', (e) => {
     const v = Number(String(e.target.value).replace(',', '.'));
     const min = field === 'caliper' ? 0.05 : 0;
-    product.cover[field] = Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : min;
+    // Klappe höchstens so breit wie die Seite
+    const limit = max ?? format.width;
+    product.cover[field] = Number.isFinite(v) ? Math.min(limit, Math.max(min, v)) : min;
     e.target.value = field === 'caliper' ? product.cover[field].toFixed(2) : String(product.cover[field]);
     tryApply();
   });
@@ -908,7 +959,15 @@ function tryApply() {
   const sum = product.groups.reduce((s, g) => s + g.count * catalogEntry(g.scheme).pages, 0);
   const sheets = product.groups.reduce((s, g) => s + g.count, 0);
   const errors = [];
-  if (!validTotal(product.pages)) {
+  const previous = { PAGE_W, PAGE_H, MM_PER_UNIT, format };
+  try {
+    applyFormat();
+  } catch (err) {
+    errors.push(err.message);
+  }
+  if (errors.length) {
+    // ungültiges Endformat: nichts weiter prüfen
+  } else if (!validTotal(product.pages)) {
     const step = pageStep(product.binding);
     errors.push(
       `Der Seitenumfang muss bei ${BINDINGS[product.binding]} ein Vielfaches von ${step} zwischen ${step} und ${MAX_PAGES} sein` +
@@ -918,6 +977,8 @@ function tryApply() {
   else errors.push(...computeAll());
   status.classList.toggle('error', errors.length > 0);
   if (errors.length) {
+    // bisherige (gültige) Darstellung behalten
+    ({ PAGE_W, PAGE_H, MM_PER_UNIT, format } = previous);
     status.innerHTML = `Summe: ${sum} von ${product.pages} Seiten · ${sheets} Bogen<br>${errors.map(escapeHtml).join('<br>')}`;
     return false;
   }
@@ -934,7 +995,7 @@ function applyProduction() {
   state.t = state.target = Math.min(state.t, foldsOf());
   state.reading = false;
   computePile();
-  coverData = hasCover() ? computeCover(production.totalLeaves, product.caliper, product.cover, PAGE_FORMAT_MM) : null;
+  coverData = hasCover() ? computeCover(production.totalLeaves, product.caliper, product.cover, format) : null;
   buildLeaves();
   buildCover();
   renderCoverTab();
@@ -951,7 +1012,7 @@ function groupSummary() {
 
 function renderProductTexts() {
   const { n, pages, binding } = production;
-  $('subtitle').textContent = `${pages} Seiten · ${n} Druckbogen (${groupSummary()}) · ${BINDINGS[binding]}`;
+  $('subtitle').textContent = `${format.label}${product.format.key === 'custom' ? '' : ` (${format.width} × ${format.height} mm)`} · ${pages} Seiten · ${n} Druckbogen (${groupSummary()}) · ${BINDINGS[binding]}`;
   $('cover-options').hidden = binding !== 'perfect';
   $('cover-fields').hidden = !hasCover();
   const maxCreep = Math.max(...production.sheets.map((s) => s.creep));
@@ -1049,7 +1110,11 @@ function renderSchemaAll() {
   renderSheetSvg(schemaBack, sheet.sig, sheet.panels, 'back', opts);
   $('schema-title').textContent = `Ausschuss Bogen ${view.sheet + 1} von ${production.n} (${sheet.scheme}) – Seiten ${sheet.pageRanges}`;
   const note = $('schema-creep');
-  const parts = [escapeHtml(describeEntry(sheet.sig.entry).longText)];
+  const parts = [
+    `${escapeHtml(describeEntry(sheet.sig.entry).longText)}. Endformat ${escapeHtml(format.label)}${
+      product.format.key === 'custom' ? '' : ` (${format.width} × ${format.height} mm)`
+    }, Bogenformat netto <strong>${sheetSizeText(sheet.sig)}</strong> (ohne Beschnitt).`,
+  ];
   if (sheet.sig.bindingBottom) parts.push('Bund waagrecht: die Seiten stehen im Feld um 90° gedreht.');
   if (production.binding === 'saddle' && production.n > 1) {
     parts.push(
@@ -1061,6 +1126,11 @@ function renderSchemaAll() {
   parts.push('Der violette Streifen markiert den Bund jeder Seite.');
   note.hidden = false;
   note.innerHTML = parts.join(' ');
+}
+
+/** Bogenformat netto (ohne Beschnitt) in mm. */
+function sheetSizeText(sig) {
+  return `${fmtNum(sig.cols * sig.cellW * MM_PER_UNIT)} × ${fmtNum(sig.rows * sig.cellH * MM_PER_UNIT)} mm`;
 }
 
 function renderOverview() {
@@ -1080,6 +1150,7 @@ function renderOverview() {
       : `${s + 1}. im Stapel`;
     tr.innerHTML = `<td><i class="dot" style="background:${sheetColor(s)}"></i>Bogen ${s + 1}</td>
       <td title="${escapeHtml(describeEntry(sheet.sig.entry).longText)}">${sheet.scheme}</td>
+      <td>${sheetSizeText(sheet.sig)}</td>
       <td>${sheet.pageRanges}</td><td>${position}</td><td>${saddle ? fmtMm(sheet.creep) : '–'}</td>`;
     tr.classList.toggle('active', view.sheet === s);
     tr.title = 'Bogen anzeigen';
@@ -1451,8 +1522,9 @@ function renderCoverTab() {
   $('cover-title').textContent = has ? `Umschlag – offen ${fmtNum(coverData.totalWidth)} × ${fmtNum(coverData.height)} mm` : 'Umschlag';
   if (!has) return;
   const d = coverData;
+  $('cover-format-note').textContent = `${fmtNum(format.width)} × ${fmtNum(format.height)} mm (${format.label})`;
   const rows = [
-    ['Endformat', `${PAGE_FORMAT_MM.width} × ${PAGE_FORMAT_MM.height} mm (DIN A5)`],
+    ['Endformat', `${fmtNum(format.width)} × ${fmtNum(format.height)} mm (${format.label})`],
     ['Inhalt', `${production.pages} Seiten = ${production.totalLeaves} Blätter, Papierstärke ${fmtMm(product.caliper)}`],
     ['Rückenstärke Buchblock', `${production.totalLeaves} × ${fmtMm(product.caliper)} = ${fmtMm(d.blockMm)}`],
     ['Papierstärke Umschlag', fmtMm(d.coverCaliper)],
@@ -1721,6 +1793,7 @@ function frame() {
 }
 
 // Start
+updateFormatInputs();
 updatePageInput();
 renderGroups();
 tryApply();
@@ -1747,6 +1820,7 @@ window.falzschema = {
     $('page-total').value = String(product.pages);
     $('binding').value = product.binding;
     $('caliper').value = product.caliper.toFixed(2);
+    updateFormatInputs();
     $('cover-enabled').checked = product.cover.enabled;
     $('cover-caliper').value = product.cover.caliper.toFixed(2);
     $('flap-right').value = String(product.cover.flapRight);

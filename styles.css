@@ -462,8 +462,8 @@ figcaption {
   table.overview {
     font-size: 0.82rem;
   }
-  table.overview th:nth-child(3),
-  table.overview td:nth-child(3) {
+  table.overview:not(.catalog-table):not(.cover-facts) th:nth-child(5),
+  table.overview:not(.catalog-table):not(.cover-facts) td:nth-child(5) {
     display: none;
   }
   .schema-grid {
@@ -1048,4 +1048,17 @@ table.overview .dot {
   .cover-facts th {
     width: 42%;
   }
+}
+
+.format-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+.format-row select {
+  min-width: 0;
+  font-size: 0.88rem;
+}
+#format-custom input {
+  width: 64px;
 }

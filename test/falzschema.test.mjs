@@ -262,3 +262,25 @@ test('Rückenstärke und Umschlagmaße', async () => {
   assert.deepEqual(d.parts.map((p) => p.key), ['back', 'spine', 'front']);
   assert.equal(d.spineMm, 1.3);
 });
+
+test('Endformat: DIN hoch/quer und manuell', async () => {
+  const { resolveFormat, computeCover } = await import('../src/falzschema.js');
+  assert.deepEqual(resolveFormat({ key: 'A4', orientation: 'portrait' }), { width: 210, height: 297, label: 'DIN A4 hoch' });
+  assert.deepEqual(resolveFormat({ key: 'A5', orientation: 'landscape' }), { width: 210, height: 148, label: 'DIN A5 quer' });
+  assert.deepEqual(resolveFormat({ key: 'custom', width: 170, height: 240 }), { width: 170, height: 240, label: '170 × 240 mm (manuell)' });
+  assert.throws(() => resolveFormat({ key: 'custom', width: 5, height: 240 }), /zwischen 20 und 1000/);
+  // Umschlag hängt vom Endformat ab
+  const c = computeCover(32, 0.1, { caliper: 0.3, flapLeft: 0, flapRight: 0 }, resolveFormat({ key: 'A4', orientation: 'landscape' }));
+  assert.equal(c.totalWidth, 297 * 2 + 3.8);
+  assert.equal(c.height, 210);
+});
+
+test('Querformat: Felder im Bogen sind quer, Paginierung unverändert', () => {
+  const portrait = computeSignature('F16-7', { pageWidth: 70, pageHeight: 99 });
+  const landscape = computeSignature('F16-7', { pageWidth: 99, pageHeight: 70 });
+  assert.deepEqual([landscape.cellW, landscape.cellH], [99, 70]);
+  assert.deepEqual(fmt(sheetLayout(landscape, 'front')), fmt(sheetLayout(portrait, 'front')));
+  // waagrechter Bund (F8-7): Feld = Seite um 90° gedreht
+  const f87 = computeSignature('F8-7', { pageWidth: 99, pageHeight: 70 });
+  assert.deepEqual([f87.cellW, f87.cellH], [70, 99]);
+});
