@@ -238,3 +238,27 @@ test('572 Seiten als 286 Einzelblätter (F2-1) in Klebebindung', () => {
   assert.equal(prod.totalLeaves, 286);
   assert.equal(prod.sheets[285].pageRanges, '571–572');
 });
+
+test('Rückenstärke und Umschlagmaße', async () => {
+  const { computeCover, blockThickness } = await import('../src/falzschema.js');
+  assert.equal(blockThickness(286, 0.1), 28.6);
+  const c = computeCover(286, 0.1, { caliper: 0.3, flapLeft: 80, flapRight: 100 });
+  assert.equal(c.blockMm, 28.6);
+  assert.equal(c.spineMm, 29.2);
+  assert.deepEqual(
+    c.parts.map((p) => [p.key, p.x, p.width]),
+    [
+      ['flapLeft', 0, 80],
+      ['back', 80, 148],
+      ['spine', 228, 29.2],
+      ['front', 257.2, 148],
+      ['flapRight', 405.2, 100],
+    ],
+  );
+  assert.equal(c.totalWidth, 505.2);
+  assert.equal(c.height, 210);
+  // ohne Klappen
+  const d = computeCover(8, 0.1, { caliper: 0.25, flapLeft: 0, flapRight: 0 });
+  assert.deepEqual(d.parts.map((p) => p.key), ['back', 'spine', 'front']);
+  assert.equal(d.spineMm, 1.3);
+});

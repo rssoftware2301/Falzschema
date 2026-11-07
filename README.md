@@ -35,9 +35,9 @@ npm run build
 
 ## Funktionen
 
-- **Drei Register**: „Grunddaten & Grafik“ (links die Steuerung mit eigenem
-  Scrollbalken, rechts das 3D-Bild), „Ausschuss & Bogenübersicht“ und
-  „CIP4-Falzkatalog“.
+- **Vier Register**: „Grunddaten & Grafik“ (links die Steuerung mit eigenem
+  Scrollbalken, rechts das 3D-Bild), „Ausschuss & Bogenübersicht“, „Umschlag“
+  und „CIP4-Falzkatalog“.
 - **Hilfe**: Schalter „? Hilfe“ oben rechts bzw. Taste F1 öffnet die
   Bedienungsanleitung beim Thema des aktuellen Bereichs (kontextsensitiv:
   Register, Ansicht, fokussiertes Eingabefeld); die „?“-Schalter an den
@@ -64,6 +64,15 @@ npm run build
     geheftet und beschnitten.
   - Klebebindung: Bogen werden aufeinandergelegt (Bogen 1 oben) und verklebt.
   Danach Blättern durch das ganze Exemplar (Buttons, Pfeiltasten, Klick).
+- **Rückenstärke (Klebebindung)**: Buchblock = Anzahl Blätter × Papierstärke des
+  Inhalts, angezeigt unter den Produktdaten.
+- **Umschlag (Klebebindung, Option „mit Umschlag?“)**: Papierstärke des Umschlags,
+  rechte Klappe (an U1) und linke Klappe (an U4) in mm. Rückenbreite des Umschlags
+  = Buchblock + 2 × Umschlagstärke. Eigenes Register „Umschlag“ mit maßstabs-
+  getreuer Außen- und Innenansicht (Teilbreiten, Gesamtbreite, Rill-/Falzlinien).
+  In der Zusammentrag-Animation wird der Umschlag zuletzt herangeführt, die
+  Klappen werden eingeschlagen und der Umschlag um den Buchblock gelegt; beim
+  Blättern wird zuerst der Umschlag aufgeschlagen (U2), am Ende erscheint U3.
 - **Verdrängung (Sammelheftung)**: je Bogen = Anzahl Blätter der umschließenden
   Bogen auf einer Seite des Rückens × Papierstärke. Der Seiteninhalt wird um diesen
   Betrag zum Bund verschoben (Darstellung 4-fach überhöht).

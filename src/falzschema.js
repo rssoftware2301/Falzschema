@@ -615,3 +615,46 @@ export function bookLeafMatrix(production, leaf) {
 export function bookAxisZ(production) {
   return (-(production.totalLeaves - 1) * production.thickness) / 2;
 }
+
+// ---------------------------------------------------------------------------
+// Rückenstärke und Umschlag (Klebebindung)
+// ---------------------------------------------------------------------------
+
+/** Endformat in mm (Annahme DIN A5, wie in der Darstellung). */
+export const PAGE_FORMAT_MM = Object.freeze({ width: 148, height: 210 });
+
+/** Stärke des Buchblocks in mm: Anzahl Blätter × Papierstärke. */
+export const blockThickness = (leaves, caliper) => round(leaves * caliper);
+
+/**
+ * Maße des Umschlags (offen, Außenansicht von links nach rechts):
+ * linke Klappe | U4 (Rückseite) | Rücken | U1 (Vorderseite) | rechte Klappe.
+ *
+ * Rückenbreite des Umschlags = Buchblockstärke + 2 × Umschlagstärke
+ * (der Rücken reicht von der Außenseite von U1 bis zur Außenseite von U4).
+ *
+ * @param {number} leaves     Anzahl Blätter des Buchblocks
+ * @param {number} caliper    Papierstärke des Inhalts in mm
+ * @param {object} cover      { caliper, flapLeft, flapRight } in mm
+ * @param {object} [format]   Endformat { width, height } in mm
+ */
+export function computeCover(leaves, caliper, cover, format = PAGE_FORMAT_MM) {
+  const blockMm = blockThickness(leaves, caliper);
+  const coverCaliper = cover.caliper;
+  const spineMm = round(blockMm + 2 * coverCaliper);
+  const flapLeft = Math.max(0, cover.flapLeft || 0);
+  const flapRight = Math.max(0, cover.flapRight || 0);
+  const parts = [
+    flapLeft > 0 && { key: 'flapLeft', name: 'linke Klappe', width: flapLeft },
+    { key: 'back', name: 'U4 – Rückseite', width: format.width },
+    { key: 'spine', name: 'Rücken', width: spineMm },
+    { key: 'front', name: 'U1 – Vorderseite', width: format.width },
+    flapRight > 0 && { key: 'flapRight', name: 'rechte Klappe', width: flapRight },
+  ].filter(Boolean);
+  let x = 0;
+  for (const p of parts) {
+    p.x = round(x);
+    x += p.width;
+  }
+  return { blockMm, coverCaliper, spineMm, flapLeft, flapRight, height: format.height, width: format.width, totalWidth: round(x), parts };
+}

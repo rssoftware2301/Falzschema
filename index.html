@@ -29,6 +29,7 @@
       <nav class="tabs" role="tablist" aria-label="Bereiche">
         <button role="tab" id="tab-anim" aria-controls="panel-anim" aria-selected="true" class="active">Grunddaten &amp; Grafik</button>
         <button role="tab" id="tab-schema" aria-controls="panel-schema" aria-selected="false">Ausschuss &amp; Bogenübersicht</button>
+        <button role="tab" id="tab-cover" aria-controls="panel-cover" aria-selected="false">Umschlag</button>
         <button role="tab" id="tab-catalog" aria-controls="panel-catalog" aria-selected="false">CIP4-Falzkatalog</button>
       </nav>
     </header>
@@ -49,10 +50,31 @@
             </select>
           </label>
           <label class="field" id="caliper-field">
-            <span>Papierstärke</span>
+            <span>Papierstärke Inhalt</span>
             <span class="with-unit"><input id="caliper" type="number" min="0.03" max="0.5" step="0.01" value="0.10" /> mm</span>
           </label>
           <p id="product-info" class="hint"></p>
+          <div id="cover-options" class="cover-options" data-help="cover">
+            <label class="check">
+              <input type="checkbox" id="cover-enabled" /> mit Umschlag?
+              <button class="help-btn" data-topic="cover" title="Hilfe: Umschlag und Rückenstärke">?</button>
+            </label>
+            <div id="cover-fields" hidden>
+              <label class="field">
+                <span>Papierstärke Umschlag</span>
+                <span class="with-unit"><input id="cover-caliper" type="number" min="0.05" max="2" step="0.01" value="0.30" /> mm</span>
+              </label>
+              <label class="field">
+                <span>rechte Klappe</span>
+                <span class="with-unit"><input id="flap-right" type="number" min="0" max="148" step="1" value="0" /> mm</span>
+              </label>
+              <label class="field">
+                <span>linke Klappe</span>
+                <span class="with-unit"><input id="flap-left" type="number" min="0" max="148" step="1" value="0" /> mm</span>
+              </label>
+            </div>
+            <p id="cover-info" class="hint"></p>
+          </div>
         </section>
 
         <section data-help="groups">
@@ -183,6 +205,35 @@
       </section>
     </main>
 
+    <main class="schema-page" id="panel-cover" role="tabpanel" aria-labelledby="tab-cover" hidden>
+      <section class="panel cover-page" data-help="cover">
+        <h2><span id="cover-title">Umschlag</span> <button class="help-btn" data-topic="cover" title="Hilfe: Umschlag">?</button></h2>
+        <div id="cover-empty" class="cover-empty">
+          <p>Kein Umschlag definiert.</p>
+          <p class="hint">
+            Unter „Grunddaten &amp; Grafik“ → Produkt die Bindeart <strong>Klebebindung</strong> wählen und
+            <strong>„mit Umschlag?“</strong> anhaken. Dann Papierstärke des Umschlags und – falls gewünscht – die Breite
+            der rechten und linken Klappe angeben.
+          </p>
+        </div>
+        <div id="cover-content" hidden>
+          <table class="overview cover-facts"><tbody id="cover-facts"></tbody></table>
+          <figure class="cover-figure">
+            <svg id="cover-outside" role="img" aria-label="Umschlag Außenseite"></svg>
+            <figcaption>Außenseite (offen, flach): linke Klappe · U4 Rückseite · Rücken · U1 Vorderseite · rechte Klappe</figcaption>
+          </figure>
+          <figure class="cover-figure">
+            <svg id="cover-inside" role="img" aria-label="Umschlag Innenseite"></svg>
+            <figcaption>Innenseite (umgedreht): rechte Klappe · U2 · Rücken · U3 · linke Klappe</figcaption>
+          </figure>
+          <p class="hint">
+            Maßstabsgetreue Darstellung in mm, Endformat 148 × 210 mm (DIN A5). Gestrichelte Linien = Rill- bzw. Falzlinien.
+            Beschnittzugabe ist nicht enthalten.
+          </p>
+        </div>
+      </section>
+    </main>
+
     <main class="schema-page" id="panel-catalog" role="tabpanel" aria-labelledby="tab-catalog" hidden>
       <section class="panel catalog" data-help="catalog">
         <div class="catalog-head">
@@ -231,6 +282,7 @@
           <a href="#help-browse" data-topic="browse">Blättern</a>
           <a href="#help-schema" data-topic="schema">Ausschuss lesen</a>
           <a href="#help-overview-table" data-topic="overview-table">Bogenübersicht</a>
+          <a href="#help-cover" data-topic="cover">Umschlag &amp; Rückenstärke</a>
           <a href="#help-catalog" data-topic="catalog">CIP4-Falzkatalog</a>
           <a href="#help-keys" data-topic="keys">Tastatur</a>
           <a href="#help-terms" data-topic="terms">Begriffe</a>
@@ -243,10 +295,11 @@
               jeder Bogen gefalzt wird und wie die gefalzten Bogen zum fertigen Exemplar zusammengetragen werden.
               Grundlage der Falzungen sind die Falzschemata des <strong>CIP4-Falzkatalogs</strong> (z. B. F16-7).
             </p>
-            <p>Die Anwendung hat drei Register:</p>
+            <p>Die Anwendung hat vier Register:</p>
             <ul>
               <li><strong>Grunddaten &amp; Grafik</strong> – links die Eingaben und Schalter, rechts die 3D-Darstellung mit den Animationen.</li>
               <li><strong>Ausschuss &amp; Bogenübersicht</strong> – Vorder- und Rückseite des gewählten Bogens als Schema und die Liste aller Bogen.</li>
+              <li><strong>Umschlag</strong> – der offene Umschlag maßstabsgetreu mit Klappen und Rückenbreite (bei Klebebindung mit Umschlag).</li>
               <li><strong>CIP4-Falzkatalog</strong> – alle Falzschemata mit ihren Angaben und einer Vorschau.</li>
             </ul>
             <p>
@@ -285,9 +338,11 @@
                 <strong>Klebebindung</strong>: Die Bogen werden nacheinander aufeinandergelegt und am Rücken verklebt.
                 Bogen 1 liegt vorne.
               </dd>
-              <dt>Papierstärke</dt>
+              <dt>Papierstärke Inhalt</dt>
               <dd>
-                Nur bei Sammelheftung. Daraus wird die <strong>Verdrängung</strong> berechnet: Innere Bogen werden von den
+                Bei Klebebindung ergibt sich daraus die <strong>Rückenstärke</strong> (Stärke des Buchblocks =
+                Anzahl Blätter × Papierstärke); sie wird unter dem Eingabefeld angezeigt.
+                Bei Sammelheftung wird daraus die <strong>Verdrängung</strong> berechnet: Innere Bogen werden von den
                 äußeren umschlossen und stehen am Vorderschnitt über. Je Bogen gilt: Anzahl Blätter der umschließenden
                 Bogen auf einer Seite des Rückens × Papierstärke. Um diesen Betrag wird der Seiteninhalt beim Ausschießen
                 zum Bund hin verschoben.
@@ -349,7 +404,7 @@
             <p>Nur in der Ansicht <span class="key">Endprodukt</span>. Die gefalzten Bogen liegen zunächst rechts bereit.</p>
             <ul>
               <li><strong>Sammelheftung</strong>: Jeder Bogen wird aufgeschlagen und um die bereits liegenden Bogen gelegt – der innerste zuerst, Bogen 1 zuletzt außen. Anschließend wird das Produkt geschlossen; die inneren Bogen stehen dabei am Vorderschnitt über (Verdrängung, überhöht dargestellt). Dann wird mit zwei Drahtklammern geheftet und der Überstand abgeschnitten.</li>
-              <li><strong>Klebebindung</strong>: Die Bogen werden der Reihe nach aufeinandergelegt (Bogen 1 oben) und am Rücken verklebt.</li>
+              <li><strong>Klebebindung</strong>: Die Bogen werden der Reihe nach aufeinandergelegt (Bogen 1 oben) und am Rücken verklebt. Ist ein Umschlag definiert, wird er zuletzt herangeführt, die Klappen werden eingeschlagen und der Umschlag um den Buchblock gelegt.</li>
             </ul>
             <p>
               <span class="key">▶ Zusammentragen abspielen</span> startet bzw. hält an, <span class="key">⏮ Zurück auf Anfang</span>
@@ -392,6 +447,30 @@
             <p>
               Listet alle Bogen mit Falzschema, Seiten, Lage im Produkt und Verdrängung. Ein Klick auf eine Zeile zeigt
               den Ausschuss dieses Bogens.
+            </p>
+          </section>
+
+          <section id="help-cover">
+            <h3>Umschlag &amp; Rückenstärke</h3>
+            <p>
+              Nur bei <strong>Klebebindung</strong>. Die <strong>Rückenstärke</strong> des Buchblocks wird aus der
+              Papierstärke des Inhalts berechnet: Anzahl Blätter × Papierstärke (z. B. 286 Blätter × 0,10 mm = 28,6 mm).
+            </p>
+            <p>Mit <strong>„mit Umschlag?“</strong> wird ein Umschlag um den Buchblock gelegt. Dafür geben Sie an:</p>
+            <ul>
+              <li><strong>Papierstärke Umschlag</strong> in mm.</li>
+              <li><strong>rechte Klappe</strong> in mm – sie hängt an der Vorderseite (U1) und wird nach innen eingeschlagen. 0 = keine Klappe.</li>
+              <li><strong>linke Klappe</strong> in mm – sie hängt an der Rückseite (U4). 0 = keine Klappe.</li>
+            </ul>
+            <p>
+              Die <strong>Rückenbreite des Umschlags</strong> = Buchblockstärke + 2 × Umschlagstärke, weil der Rücken von
+              der Außenseite der Vorderseite bis zur Außenseite der Rückseite reicht.
+            </p>
+            <p>
+              Das Register <strong>Umschlag</strong> zeigt den offenen Umschlag maßstabsgetreu mit Außen- und Innenseite,
+              allen Teilbreiten, Gesamtbreite und Rill-/Falzlinien. Beim Zusammentragen im Endprodukt wird der Umschlag
+              zuletzt herangeführt: zuerst werden die Klappen eingeschlagen, dann Vorder- und Rückseite um den
+              Buchblock gelegt. Beim Blättern wird zuerst der Umschlag aufgeschlagen (U2), am Ende sieht man U3.
             </p>
           </section>
 

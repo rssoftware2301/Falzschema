@@ -944,3 +944,108 @@ table.overview .dot {
 .chips .sheet-select {
   flex: 1 1 100%;
 }
+
+/* --- Umschlag -------------------------------------------------------------- */
+.cover-options {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.check input {
+  width: 16px;
+  height: 16px;
+}
+.cover-page {
+  max-width: 1500px;
+  margin: 0 auto;
+}
+.cover-empty p {
+  margin: 6px 0;
+}
+.cover-facts {
+  max-width: 720px;
+  margin-bottom: 16px;
+}
+.cover-facts th {
+  width: 220px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.cover-figure {
+  margin: 12px 0 20px;
+}
+.cover-figure svg {
+  max-height: 46vh;
+}
+.cover-part.outside {
+  fill: #f2d8c2;
+}
+.cover-part.inside {
+  fill: #fbfbfb;
+}
+.cover-part.spine.outside {
+  fill: #e8c3a6;
+}
+.cover-part.flapLeft,
+.cover-part.flapRight {
+  fill-opacity: 0.75;
+}
+.cover-part {
+  stroke: none;
+}
+.cover-outline {
+  fill: none;
+  stroke: #5b3a26;
+  stroke-width: 1;
+}
+.cover-crease {
+  stroke: #c0392b;
+  stroke-width: 0.8;
+  stroke-dasharray: 4 3;
+}
+.cover-label {
+  font-size: 9px;
+  font-weight: 700;
+  fill: #5b3a26;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+.cover-dim {
+  font-size: 8px;
+  fill: var(--muted);
+  text-anchor: middle;
+}
+.cover-dim.strong {
+  font-weight: 700;
+  fill: var(--text);
+}
+.dim-line {
+  stroke: #8a95a5;
+  stroke-width: 0.6;
+}
+@media (max-width: 860px) {
+  .tabs {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .tabs button {
+    padding: 7px 10px;
+    font-size: 0.85rem;
+    border-radius: 8px;
+  }
+  .tabs button.active {
+    border-radius: 8px 8px 0 0;
+  }
+}
+@media (max-width: 860px) {
+  .cover-facts th {
+    width: 42%;
+  }
+}

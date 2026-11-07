@@ -25,6 +25,9 @@ import {
   multiply,
   translation,
   creases,
+  rotation,
+  computeCover,
+  PAGE_FORMAT_MM,
 } from './falzschema.js';
 import { buildCatalogExport } from './catalog-export.js';
 
@@ -60,6 +63,7 @@ const sheetColor = (s) => SHEET_COLORS[s % SHEET_COLORS.length];
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 const ease = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 const fmtMm = (v) => `${v.toFixed(2).replace('.', ',')} mm`;
+const fmtNum = (v) => (Math.round(v * 10) / 10).toLocaleString('de-AT', { maximumFractionDigits: 1 });
 const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 // ---------------------------------------------------------------------------
@@ -67,6 +71,7 @@ const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '
 // ---------------------------------------------------------------------------
 
 const product = {
+  cover: { enabled: false, caliper: 0.3, flapLeft: 0, flapRight: 0 },
   pages: 16,
   binding: 'saddle',
   caliper: 0.1,
@@ -74,6 +79,10 @@ const product = {
 };
 let production;
 let BOOK_AXIS_Z = 0;
+let coverData = null; // Maße des Umschlags (mm) oder null
+
+/** Umschlag nur bei Klebebindung. */
+const hasCover = () => product.binding === 'perfect' && product.cover.enabled;
 
 const sigOptions = () => ({ pageWidth: PAGE_W, pageHeight: PAGE_H, thickness: displayThickness(product.pages) });
 
@@ -459,7 +468,7 @@ const state = {
   cameraTarget: null, // laufende Kamerafahrt (Vector3) oder null
 };
 
-const assemblyEnd = () => production.n + 1;
+const assemblyEnd = () => production.n + 1 + (hasCover() ? 1 : 0);
 
 /** Lage der Blätter des gewählten Bogens in der Bogenansicht. */
 function sheetPose(t, book) {
@@ -534,7 +543,8 @@ function bookPose(a, book) {
       const lift = (20 + production.thickness * production.totalLeaves) * Math.sin(Math.PI * q);
       m = multiply(translation(sx * (1 - e), sy * (1 - e), sz * (1 - e) + dzBook * e + lift), base);
     }
-    if (book > 0) m = turnCanonical(m, ease(clamp01(book - leaf.g)), BOOK_AXIS_Z);
+    // mit Umschlag wird zuerst die Vorderseite des Umschlags umgeblättert
+    if (book > 0) m = turnCanonical(m, ease(clamp01(book - leaf.g - (hasCover() ? 1 : 0))), BOOK_AXIS_Z);
     matrices[leaf.g] = m;
     trims[leaf.g] = saddle ? creepUnits(s) * trim : 0;
   }
@@ -550,6 +560,153 @@ function computePile() {
     pileDepth[i] = depth;
     depth += (production.sheets[production.n - 1 - i].sig.leaves + 1) * production.thickness;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Umschlag (3D): U1 mit rechter Klappe, Rücken, U4 mit linker Klappe
+// ---------------------------------------------------------------------------
+
+const COVER_COLORS = { outside: '#f2d8c2', inside: '#fbfbfb', edge: 0x9a6b4f };
+const GLUE_WIDTH = 2.2; // Klebstoffschicht am Rücken (Darstellung)
+let coverObjects = []; // [{ key, obj, w, h }]
+
+function coverTexture({ w, h, title, sub, color, scale, vertical = false }) {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(8, Math.round(w * scale));
+  canvas.height = Math.max(8, Math.round(h * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = '#b08a70';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(1.5, 1.5, canvas.width - 3, canvas.height - 3);
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  if (vertical) ctx.rotate(-Math.PI / 2);
+  const span = vertical ? canvas.height : canvas.width;
+  const size = Math.min(span * 0.11, (vertical ? canvas.width : canvas.height) * 0.6, 14 * scale);
+  ctx.fillStyle = '#5b3a26';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 ${Math.max(6, Math.round(size))}px system-ui, sans-serif`;
+  ctx.fillText(title, 0, sub && !vertical ? -size * 0.6 : 0);
+  if (sub && !vertical) {
+    ctx.font = `500 ${Math.max(5, Math.round(size * 0.55))}px system-ui, sans-serif`;
+    ctx.fillText(sub, 0, size * 0.6);
+  }
+  ctx.restore();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAniso;
+  return tex;
+}
+
+/** Geometrie des Umschlags im kanonischen System (Bund bei x = 0). */
+function coverGeometry() {
+  const th = production.thickness;
+  const T = production.totalLeaves;
+  const ct = Math.max(th * 1.5, 0.5); // Umschlagstärke (Darstellung)
+  const zT = th * 0.5; // Oberseite des Buchblocks
+  const zB = -(T - 1) * th - th * 0.5; // Unterseite
+  const xS = -GLUE_WIDTH - ct / 2; // Ebene des Umschlagrückens (außerhalb der Klebstoffschicht)
+  return {
+    ct,
+    xS,
+    zU1: zT + 1.5 * ct,
+    zFlapF: zT + 0.5 * ct,
+    zU4: zB - 1.5 * ct,
+    zFlapB: zB - 0.5 * ct,
+    fR: coverData.flapRight / MM_PER_UNIT,
+    fL: coverData.flapLeft / MM_PER_UNIT,
+  };
+}
+
+function disposeCover() {
+  for (const { obj } of coverObjects) {
+    for (const child of obj.children) {
+      child.material.map?.dispose();
+      child.material.dispose();
+      child.geometry.dispose();
+    }
+    sheetGroup.remove(obj);
+  }
+  coverObjects = [];
+}
+
+function buildCover() {
+  disposeCover();
+  if (!coverData) return;
+  const g = coverGeometry();
+  const W = PAGE_W;
+  const H = PAGE_H;
+  const panelW = W - g.xS;
+  const depth = g.zU1 - g.zU4;
+  const spineText = `Rücken ${fmtNum(coverData.spineMm)} mm`;
+  const defs = [
+    { key: 'front', w: panelW, out: ['U1', 'Vorderseite'], ins: ['U2', 'Innenseite vorne'] },
+    { key: 'back', w: panelW, out: ['U4', 'Rückseite'], ins: ['U3', 'Innenseite hinten'] },
+    { key: 'spine', w: depth, out: [spineText], ins: ['Rücken innen'], vertical: true },
+  ];
+  if (g.fR > 0) defs.push({ key: 'flapRight', w: g.fR, out: ['rechte Klappe', `${fmtNum(coverData.flapRight)} mm`], ins: ['Klappe'] });
+  if (g.fL > 0) defs.push({ key: 'flapLeft', w: g.fL, out: ['linke Klappe', `${fmtNum(coverData.flapLeft)} mm`], ins: ['Klappe'] });
+  for (const d of defs) {
+    const geom = new THREE.PlaneGeometry(d.w, H);
+    const tex = (side) =>
+      coverTexture({
+        w: d.w,
+        h: H,
+        title: side === 'out' ? d.out[0] : d.ins[0],
+        sub: side === 'out' ? d.out[1] : d.ins[1],
+        color: side === 'out' ? COVER_COLORS.outside : COVER_COLORS.inside,
+        scale: 4,
+        vertical: d.vertical,
+      });
+    const obj = new THREE.Group();
+    obj.matrixAutoUpdate = false;
+    const outside = new THREE.Mesh(geom, new THREE.MeshStandardMaterial({ map: tex('out'), roughness: 0.7 }));
+    outside.position.z = 0.05;
+    const inside = new THREE.Mesh(geom.clone(), new THREE.MeshStandardMaterial({ map: tex('in'), roughness: 0.9 }));
+    inside.rotation.y = Math.PI;
+    inside.position.z = -0.05;
+    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(geom), new THREE.LineBasicMaterial({ color: COVER_COLORS.edge }));
+    obj.add(outside, inside, edge);
+    obj.visible = false;
+    sheetGroup.add(obj);
+    coverObjects.push({ key: d.key, obj, w: d.w, h: H });
+  }
+}
+
+/** Drehung um eine Scharnierlinie parallel zur y-Achse durch (hx, hz). */
+const hinge = (hx, hz, angle) =>
+  multiply(translation(hx, 0, hz), multiply(rotation('y', angle), translation(-hx, 0, -hz)));
+
+/**
+ * Lage der Umschlagteile: c = Fortschritt der Umschlagphase (0..1), book = Blättern.
+ * Ablauf: herangeführt (flach, senkrecht am Rücken) -> Klappen einschlagen -> U1/U4 umlegen.
+ */
+function coverPose(c, book) {
+  const g = coverGeometry();
+  const W = PAGE_W;
+  const H = PAGE_H;
+  const pa = ease(clamp01(c / 0.35));
+  const pf = ease(clamp01((c - 0.35) / 0.25));
+  const p1 = ease(clamp01((c - 0.6) / 0.4));
+  const approach = translation(-(2 * W + 60) * (1 - pa), 0, 0);
+  const cx = (g.xS + W) / 2;
+  const R1 = hinge(g.xS, g.zU1, (-Math.PI / 2) * (1 - p1));
+  const R4 = hinge(g.xS, g.zU4, (Math.PI / 2) * (1 - p1));
+  const flipY = rotation('y', Math.PI);
+  const turnFront = (m) => (book > 0 ? turnCanonical(m, ease(clamp01(book)), BOOK_AXIS_Z) : m);
+  const poses = {
+    front: turnFront(multiply(R1, translation(cx, H / 2, g.zU1))),
+    flapRight: turnFront(
+      multiply(R1, multiply(hinge(W, (g.zU1 + g.zFlapF) / 2, Math.PI * pf), translation(W + g.fR / 2, H / 2, g.zU1))),
+    ),
+    back: multiply(R4, multiply(translation(cx, H / 2, g.zU4), flipY)),
+    flapLeft: multiply(R4, multiply(hinge(W, (g.zU4 + g.zFlapB) / 2, -Math.PI * pf), multiply(translation(W + g.fL / 2, H / 2, g.zU4), flipY))),
+    spine: multiply(translation(g.xS, H / 2, (g.zU1 + g.zU4) / 2), rotation('y', -Math.PI / 2)),
+  };
+  return coverObjects.map(({ key }) => multiply(approach, poses[key]));
 }
 
 function applyMatrices(objects, matrices) {
@@ -612,6 +769,7 @@ function selectTab(tab) {
   for (const [name, btn, panel] of [
     ['anim', 'tab-anim', 'panel-anim'],
     ['schema', 'tab-schema', 'panel-schema'],
+    ['cover', 'tab-cover', 'panel-cover'],
     ['catalog', 'tab-catalog', 'panel-catalog'],
   ]) {
     $(btn).classList.toggle('active', name === tab);
@@ -622,6 +780,7 @@ function selectTab(tab) {
 }
 $('tab-anim').addEventListener('click', () => selectTab('anim'));
 $('tab-schema').addEventListener('click', () => selectTab('schema'));
+$('tab-cover').addEventListener('click', () => selectTab('cover'));
 $('tab-catalog').addEventListener('click', () => selectTab('catalog'));
 
 // --- Produkt und Bogenaufteilung -------------------------------------------------
@@ -656,6 +815,24 @@ $('caliper').addEventListener('change', (e) => {
   e.target.value = product.caliper.toFixed(2);
   tryApply();
 });
+
+$('cover-enabled').addEventListener('change', (e) => {
+  product.cover.enabled = e.target.checked;
+  tryApply();
+});
+for (const [id, field, max] of [
+  ['cover-caliper', 'caliper', 2],
+  ['flap-right', 'flapRight', PAGE_FORMAT_MM.width],
+  ['flap-left', 'flapLeft', PAGE_FORMAT_MM.width],
+]) {
+  $(id).addEventListener('change', (e) => {
+    const v = Number(String(e.target.value).replace(',', '.'));
+    const min = field === 'caliper' ? 0.05 : 0;
+    product.cover[field] = Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : min;
+    e.target.value = field === 'caliper' ? product.cover[field].toFixed(2) : String(product.cover[field]);
+    tryApply();
+  });
+}
 
 const validTotal = (p) => validPageTotal(p, product.binding, MAX_PAGES);
 
@@ -757,7 +934,10 @@ function applyProduction() {
   state.t = state.target = Math.min(state.t, foldsOf());
   state.reading = false;
   computePile();
+  coverData = hasCover() ? computeCover(production.totalLeaves, product.caliper, product.cover, PAGE_FORMAT_MM) : null;
   buildLeaves();
+  buildCover();
+  renderCoverTab();
   renderViewChips();
   renderOverview();
   renderSteps();
@@ -772,14 +952,22 @@ function groupSummary() {
 function renderProductTexts() {
   const { n, pages, binding } = production;
   $('subtitle').textContent = `${pages} Seiten · ${n} Druckbogen (${groupSummary()}) · ${BINDINGS[binding]}`;
-  $('caliper-field').hidden = binding !== 'saddle';
+  $('cover-options').hidden = binding !== 'perfect';
+  $('cover-fields').hidden = !hasCover();
   const maxCreep = Math.max(...production.sheets.map((s) => s.creep));
   $('product-info').textContent =
     binding === 'saddle'
       ? n === 1
         ? 'Der Bogen wird am Rücken geheftet. Bei nur einem Bogen entsteht keine Verdrängung zwischen Bogen.'
         : `${n} Bogen werden ineinandergesteckt und am Rücken geheftet. Verdrängung: 0 bis ${fmtMm(maxCreep)} (innerster Bogen).`
-      : `${n} Bogen werden nacheinander zusammengetragen und am Rücken verklebt (auch Einzelblätter F2-1 möglich). Keine Verdrängung.`;
+      : `${n} Bogen werden nacheinander zusammengetragen und am Rücken verklebt (auch Einzelblätter F2-1 möglich). ` +
+        `Rückenstärke (Buchblock): ${production.totalLeaves} Blätter × ${fmtMm(product.caliper)} = ${fmtMm(
+          (production.totalLeaves * product.caliper),
+        )}.`;
+  $('cover-info').textContent = hasCover()
+    ? `Rückenbreite Umschlag: ${fmtMm(coverData.spineMm)} (Buchblock + 2 × ${fmtMm(coverData.coverCaliper)}). ` +
+      `Umschlag offen: ${fmtNum(coverData.totalWidth)} × ${fmtNum(coverData.height)} mm – siehe Register „Umschlag“.`
+    : '';
   $('assembly-intro').textContent =
     binding === 'saddle'
       ? 'Sammelheftung: Die gefalzten Bogen werden aufgeschlagen und ineinandergesteckt – der innerste Bogen zuerst, Bogen 1 zuletzt außen. Dann wird geschlossen, geheftet und am Vorderschnitt beschnitten.'
@@ -1016,7 +1204,7 @@ controls.addEventListener('start', () => (state.cameraTarget = null));
 
 // --- Blättern ---------------------------------------------------------------
 
-const leafCount = () => (view.mode === 'book' ? production.totalLeaves : sigOf().leaves);
+const leafCount = () => (view.mode === 'book' ? production.totalLeaves + (hasCover() ? 1 : 0) : sigOf().leaves);
 
 /** Kann geblättert werden? (Bogen fertig gefalzt bzw. Produkt fertig) */
 function canBrowse() {
@@ -1048,6 +1236,12 @@ const currentLeaf = () => Math.round(state.bookTarget);
 
 /** Aufgeschlagene Seiten nach k umgeblätterten Blättern (Seitenzahlen im Produkt). */
 function visiblePages(k) {
+  if (view.mode === 'book' && hasCover()) {
+    // k = 0: geschlossen (U1), k = 1: U2 | Seite 1, …, k = Blätter+1: letzte Seite | U3
+    const T = production.totalLeaves;
+    if (k <= 0) return { left: null, right: 'Umschlag U1' };
+    return { left: k === 1 ? 'U2' : 2 * (k - 1), right: k - 1 < T ? 2 * (k - 1) + 1 : 'U3' };
+  }
   if (view.mode === 'book') return openPages(k, production.totalLeaves);
   const sheet = sheetOf();
   const leafOfLayer = (L) => sheet.panels.find((p) => p.layer === L).leaf;
@@ -1142,9 +1336,21 @@ function updateUi(pose) {
         if (f < 0.4) text = 'Produkt wird geschlossen – die inneren Bogen stehen am Vorderschnitt über (Verdrängung) …';
         else if (f < 0.6) text = 'Heften: zwei Drahtklammern durch den Rücken …';
         else text = 'Beschnitt: der Überstand am Vorderschnitt wird abgeschnitten …';
-      } else text = 'Rücken wird gefräst und verklebt …';
+      } else if (a < n + 1) text = 'Rücken wird gefräst und verklebt …';
+      else {
+        const c = a - n - 1;
+        const flaps = coverData && (coverData.flapLeft > 0 || coverData.flapRight > 0);
+        text =
+          c < 0.35
+            ? 'Umschlag wird herangeführt und an den beleimten Rücken gedrückt …'
+            : c < 0.6 && flaps
+              ? 'Klappen werden eingeschlagen …'
+              : 'Umschlag wird um den Buchblock gelegt …';
+      }
     } else
-      text = `Fertig: ${production.pages} Seiten aus ${n} Bogen, ${BINDINGS[production.binding]}. ${
+      text = `Fertig: ${production.pages} Seiten aus ${n} Bogen, ${BINDINGS[production.binding]}${
+        hasCover() ? ` mit Umschlag (Rückenbreite ${fmtMm(coverData.spineMm)})` : ''
+      }. ${
         saddle && n > 1 ? 'Dank Verdrängungsausgleich steht der Inhalt nach dem Beschnitt auf allen Seiten gleich.' : ''
       }`;
     $('assembly-status').textContent = text;
@@ -1160,7 +1366,15 @@ function updateUi(pose) {
   $('browse-title').textContent = view.mode === 'book' ? 'Blättern im Endprodukt' : `Blättern im Bogen ${view.sheet + 1}`;
   if (browse) {
     const { left, right } = visiblePages(leaf);
-    pagesEl.textContent = left === null ? `Vorne: Seite ${right}` : right === null ? `Hinten: Seite ${left}` : `Seite ${left} | ${right}`;
+    const lbl = (x) => (typeof x === 'number' ? `Seite ${x}` : x);
+    pagesEl.textContent =
+      left === null
+        ? `Vorne: ${lbl(right)}`
+        : right === null
+          ? `Hinten: ${lbl(left)}`
+          : typeof left === 'number' && typeof right === 'number'
+            ? `Seite ${left} | ${right}`
+            : `${lbl(left)} | ${lbl(right)}`;
   } else {
     pagesEl.textContent = view.mode === 'book' ? 'erst nach dem Zusammentragen' : 'erst nach dem letzten Falz';
   }
@@ -1183,6 +1397,76 @@ function updateUi(pose) {
 }
 
 // ---------------------------------------------------------------------------
+// Register „Umschlag“ (maßstabsgetreu in mm)
+// ---------------------------------------------------------------------------
+
+function renderCoverSvg(svg, data, side) {
+  const m = { top: 34, bottom: 40, left: 34, right: 12 };
+  const W = data.totalWidth;
+  const H = data.height;
+  svg.setAttribute('viewBox', `0 0 ${W + m.left + m.right} ${H + m.top + m.bottom}`);
+  svg.replaceChildren();
+  // Innenseite: Umschlag umgedreht (um die senkrechte Achse) -> Reihenfolge gespiegelt
+  const parts = data.parts.map((p) => ({ ...p, x: side === 'outside' ? p.x : W - p.x - p.width }));
+  const insideNames = { front: 'U2 – Innenseite vorne', back: 'U3 – Innenseite hinten', spine: 'Rücken', flapLeft: 'linke Klappe', flapRight: 'rechte Klappe' };
+  for (const p of parts) {
+    const x = m.left + p.x;
+    svgEl('rect', { x, y: m.top, width: p.width, height: H, class: `cover-part ${side} ${p.key}` }, svg);
+    const name = side === 'outside' ? p.name : insideNames[p.key];
+    const cx = x + p.width / 2;
+    const narrow = p.width < 40;
+    const tiny = p.width < 14; // zu schmal für eine Beschriftung im Feld
+    const t = svgEl(
+      'text',
+      { x: cx, y: m.top + H / 2, class: 'cover-label', transform: narrow ? `rotate(-90 ${cx} ${m.top + H / 2})` : '' },
+      svg,
+    );
+    t.textContent = tiny ? '' : name;
+    // Maß über dem Teil (bei schmalem Rücken mit Bezeichnung)
+    const dim = svgEl('text', { x: cx, y: m.top - 8, class: 'cover-dim' }, svg);
+    dim.textContent = tiny ? `${p.key === 'spine' ? 'Rücken ' : ''}${fmtNum(p.width)}` : `${fmtNum(p.width)}`;
+    svgEl('line', { x1: x + 1, y1: m.top - 4, x2: x + p.width - 1, y2: m.top - 4, class: 'dim-line' }, svg);
+  }
+  // Rill-/Falzlinien an den inneren Grenzen
+  for (const p of parts) {
+    for (const xEdge of [p.x, p.x + p.width]) {
+      if (xEdge <= 0.01 || xEdge >= W - 0.01) continue;
+      svgEl('line', { x1: m.left + xEdge, y1: m.top, x2: m.left + xEdge, y2: m.top + H, class: 'cover-crease' }, svg);
+    }
+  }
+  svgEl('rect', { x: m.left, y: m.top, width: W, height: H, class: 'cover-outline' }, svg);
+  // Gesamtbreite und Höhe
+  svgEl('line', { x1: m.left, y1: m.top + H + 14, x2: m.left + W, y2: m.top + H + 14, class: 'dim-line' }, svg);
+  const tw = svgEl('text', { x: m.left + W / 2, y: m.top + H + 30, class: 'cover-dim strong' }, svg);
+  tw.textContent = `Gesamtbreite ${fmtNum(W)} mm`;
+  svgEl('line', { x1: m.left - 14, y1: m.top, x2: m.left - 14, y2: m.top + H, class: 'dim-line' }, svg);
+  const th = svgEl('text', { x: m.left - 20, y: m.top + H / 2, class: 'cover-dim strong', transform: `rotate(-90 ${m.left - 20} ${m.top + H / 2})` }, svg);
+  th.textContent = `${fmtNum(H)} mm`;
+}
+
+function renderCoverTab() {
+  const has = !!coverData;
+  $('cover-empty').hidden = has;
+  $('cover-content').hidden = !has;
+  $('cover-title').textContent = has ? `Umschlag – offen ${fmtNum(coverData.totalWidth)} × ${fmtNum(coverData.height)} mm` : 'Umschlag';
+  if (!has) return;
+  const d = coverData;
+  const rows = [
+    ['Endformat', `${PAGE_FORMAT_MM.width} × ${PAGE_FORMAT_MM.height} mm (DIN A5)`],
+    ['Inhalt', `${production.pages} Seiten = ${production.totalLeaves} Blätter, Papierstärke ${fmtMm(product.caliper)}`],
+    ['Rückenstärke Buchblock', `${production.totalLeaves} × ${fmtMm(product.caliper)} = ${fmtMm(d.blockMm)}`],
+    ['Papierstärke Umschlag', fmtMm(d.coverCaliper)],
+    ['Rückenbreite Umschlag', `${fmtMm(d.blockMm)} + 2 × ${fmtMm(d.coverCaliper)} = ${fmtMm(d.spineMm)}`],
+    ['linke Klappe', d.flapLeft > 0 ? `${fmtNum(d.flapLeft)} mm (an U4)` : 'keine'],
+    ['rechte Klappe', d.flapRight > 0 ? `${fmtNum(d.flapRight)} mm (an U1)` : 'keine'],
+    ['Umschlag offen', `${fmtNum(d.totalWidth)} × ${fmtNum(d.height)} mm`],
+  ];
+  $('cover-facts').innerHTML = rows.map(([k, v]) => `<tr><th>${k}</th><td>${escapeHtml(v)}</td></tr>`).join('');
+  renderCoverSvg($('cover-outside'), d, 'outside');
+  renderCoverSvg($('cover-inside'), d, 'inside');
+}
+
+// ---------------------------------------------------------------------------
 // Hilfe (kontextsensitiv)
 // ---------------------------------------------------------------------------
 
@@ -1194,6 +1478,7 @@ function contextTopic() {
   if (focused && !helpDialog.contains(focused)) return focused.dataset.help;
   if (activeTab === 'schema') return 'schema';
   if (activeTab === 'catalog') return 'catalog';
+  if (activeTab === 'cover') return 'cover';
   if (view.mode === 'book') return canBrowse() ? 'browse' : 'assembly';
   return canBrowse() && foldsOf() > 0 ? 'browse' : 'folding';
 }
@@ -1389,12 +1674,23 @@ function frame() {
   for (const obj of leafObjects) obj.visible = false;
   objects.forEach((o) => (o.visible = true));
   applyMatrices(objects, matrices);
+  // Umschlag: sichtbar im Endprodukt, sobald alle Bogen zusammengetragen sind
+  const coverVisible = view.mode === 'book' && coverObjects.length > 0 && state.a >= production.n - 1e-6;
+  let coverMatrices = [];
+  if (coverVisible) {
+    coverMatrices = coverPose(clamp01(state.a - production.n - 1), state.book);
+    applyMatrices(coverObjects.map((c) => c.obj), coverMatrices);
+  }
+  coverObjects.forEach((c) => (c.obj.visible = coverVisible));
   updateFoldLines(state.t);
   updateFastening(pose);
   updateSpineStrips(pose?.protrusions);
 
   // Objekt in der Bildmitte halten (sanft nachführen) und passend zoomen
-  const box = bounds(objects.map((o, i) => ({ m: matrices[i], w: o.userData.w, h: o.userData.h })));
+  const box = bounds([
+    ...objects.map((o, i) => ({ m: matrices[i], w: o.userData.w, h: o.userData.h })),
+    ...coverMatrices.map((m, i) => ({ m, w: coverObjects[i].w, h: coverObjects[i].h })),
+  ]);
   const c = new THREE.Vector3((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, (box.minZ + box.maxZ) / 2);
   if (first) state.center.copy(c);
   else state.center.lerp(c, 1 - Math.exp(-dt * 4));
@@ -1451,6 +1747,10 @@ window.falzschema = {
     $('page-total').value = String(product.pages);
     $('binding').value = product.binding;
     $('caliper').value = product.caliper.toFixed(2);
+    $('cover-enabled').checked = product.cover.enabled;
+    $('cover-caliper').value = product.cover.caliper.toFixed(2);
+    $('flap-right').value = String(product.cover.flapRight);
+    $('flap-left').value = String(product.cover.flapLeft);
     updatePageInput();
     renderGroups();
     return tryApply();
