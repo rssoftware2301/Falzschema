@@ -62,7 +62,7 @@
               </select>
             </span>
           </label>
-          <label class="field" id="format-custom" hidden>
+          <label class="field" id="format-custom">
             <span>Breite × Höhe</span>
             <span class="with-unit">
               <input id="format-width" type="number" min="20" max="1000" step="1" value="148" aria-label="Breite in mm" />
@@ -86,6 +86,20 @@
             <span>Papierstärke Inhalt</span>
             <span class="with-unit"><input id="caliper" type="number" min="0.03" max="0.5" step="0.01" value="0.10" /> mm</span>
           </label>
+          <div class="bleed-options" data-help="bleed">
+            <label class="check">
+              <input type="checkbox" id="core-bleed" /> Kern abfallend
+              <button class="help-btn" data-topic="bleed" title="Hilfe: abfallend, Überfüller, Fräsrand">?</button>
+            </label>
+            <label class="field" id="core-bleed-field" hidden>
+              <span>Überfüller Kern</span>
+              <span class="with-unit"><input id="core-bleed-mm" type="number" min="0" max="20" step="0.5" value="3" /> mm</span>
+            </label>
+            <label class="field" id="milling-field">
+              <span>Fräsrand (Bund)</span>
+              <span class="with-unit"><input id="milling-mm" type="number" min="0" max="20" step="0.5" value="3" /> mm</span>
+            </label>
+          </div>
           <p id="product-info" class="hint"></p>
           <div id="cover-options" class="cover-options" data-help="cover">
             <label class="check">
@@ -104,6 +118,13 @@
               <label class="field">
                 <span>linke Klappe</span>
                 <span class="with-unit"><input id="flap-left" type="number" min="0" max="148" step="1" value="0" /> mm</span>
+              </label>
+              <label class="check">
+                <input type="checkbox" id="cover-bleed" /> Umschlag abfallend
+              </label>
+              <label class="field" id="cover-bleed-field" hidden>
+                <span>Überfüller Umschlag</span>
+                <span class="with-unit"><input id="cover-bleed-mm" type="number" min="0" max="20" step="0.5" value="3" /> mm</span>
               </label>
             </div>
             <p id="cover-info" class="hint"></p>
@@ -226,12 +247,14 @@
         <p class="hint">
           Kopfstehende Seitenzahlen sind auf dem Bogen um 180° gedreht („Kopf an Kopf“). Die gestrichelten roten
           Linien sind die Falzlinien mit der Nummer des Falzschritts, der graue Rahmen ist der Satzspiegel.
+          Orange = Überfüller (abfallend), violett = Fräsrand am Bund (Klebebindung); der Rand jeder Seite ist die
+          Schnittlinie (Endformat). Unter dem Schema steht das Format des Falzbogens.
         </p>
 
         <h2 class="overview-title">Bogenübersicht <button class="help-btn" data-topic="overview" title="Hilfe: Bogenübersicht">?</button> <span class="hint inline">– Zeile anklicken, um den Bogen anzuzeigen</span></h2>
         <table class="overview">
           <thead>
-            <tr><th>Bogen</th><th>Falzschema</th><th>Bogenformat</th><th>Seiten</th><th>Lage im Produkt</th><th>Verdrängung</th></tr>
+            <tr><th>Bogen</th><th>Falzschema</th><th>Falzbogen</th><th>Seiten</th><th>Lage im Produkt</th><th>Verdrängung</th></tr>
           </thead>
           <tbody id="sheet-overview"></tbody>
         </table>
@@ -334,6 +357,7 @@
           <a href="#help-browse" data-topic="browse">Blättern</a>
           <a href="#help-schema" data-topic="schema">Ausschuss lesen</a>
           <a href="#help-overview-table" data-topic="overview-table">Bogenübersicht</a>
+          <a href="#help-bleed" data-topic="bleed">Abfallend, Fräsrand</a>
           <a href="#help-cover" data-topic="cover">Umschlag &amp; Rückenstärke</a>
           <a href="#help-catalog" data-topic="catalog">CIP4-Falzkatalog</a>
           <a href="#help-keys" data-topic="keys">Tastatur</a>
@@ -380,7 +404,7 @@
               <dd>
                 Format der fertigen (beschnittenen) Seite. Wählen Sie ein DIN-Format der Reihe A oder B und
                 <strong>hoch</strong> oder <strong>quer</strong>, oder <strong>manuell …</strong> für eine freie Eingabe
-                von Breite × Höhe in mm. Das Endformat bestimmt die Proportionen der Seiten auf dem Bogen (3D und
+                von Breite × Höhe in mm. Breite und Höhe werden bei DIN-Formaten automatisch angezeigt. Das Endformat bestimmt die Proportionen der Seiten auf dem Bogen (3D und
                 Ausschuss), die Größe der Bogen in mm, die Verdrängung und die Maße des Umschlags. Bei Schemata mit
                 waagrechtem Bund (z. B. F8-7) steht die Seite im Feld um 90° gedreht – das Feld ist dann entsprechend quer.
               </dd>
@@ -507,6 +531,31 @@
             <p>
               Listet alle Bogen mit Falzschema, Bogenformat (netto, ohne Beschnitt), Seiten, Lage im Produkt und Verdrängung. Ein Klick auf eine Zeile zeigt
               den Ausschuss dieses Bogens.
+            </p>
+          </section>
+
+          <section id="help-bleed">
+            <h3>Abfallend, Überfüller und Fräsrand</h3>
+            <p>
+              <strong>Kern abfallend</strong>: Reichen Bilder oder Flächen bis an den Rand der Seite, wird um jede Seite
+              ein <strong>Überfüller</strong> (Anschnitt, z. B. 3 mm) zugegeben – an Kopf, Fuß und Vorderschnitt.
+              Am <strong>Bund</strong> gibt es keinen Anschnitt:
+            </p>
+            <ul>
+              <li><strong>Sammelheftung</strong>: Die Seiten stoßen am Bund direkt aneinander (0 mm).</li>
+              <li><strong>Klebebindung</strong>: Statt des Anschnitts wird am Bund der <strong>Fräsrand</strong> zugegeben, der beim Fräsen des Rückens wegfällt. Er gilt immer bei Klebebindung, auch wenn der Kern nicht abfallend ist.</li>
+            </ul>
+            <p>
+              Im Register <em>Ausschuss</em> sind Überfüller (orange schraffiert) und Fräsrand (violett schraffiert) um jede
+              Seite eingezeichnet, die Schnittlinien gestrichelt. Über dem Schema und in der Bogenübersicht steht das
+              daraus resultierende <strong>Falzbogenformat</strong> (Breite × Höhe) – maßgeblich für die Planung des Druckbogens.
+              Die Falzanimation zeigt den Bogen netto (Endformat).
+            </p>
+            <p>
+              <strong>Umschlag abfallend</strong> (unter „mit Umschlag?“): Der Überfüller kommt rund um den geöffneten
+              Umschlag hinzu. Ohne Klappen wird der Umschlag nach dem Binden zusammen mit dem Inhalt dreiseitig beschnitten.
+              Mit Klappen entfällt der Überfüller links und rechts, weil der Vorderschnitt dann nicht mitbeschnitten
+              werden kann.
             </p>
           </section>
 

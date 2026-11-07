@@ -28,6 +28,8 @@ import {
   rotation,
   computeCover,
   resolveFormat,
+  sheetImposition,
+  coverBleed,
 } from './falzschema.js';
 import { buildCatalogExport } from './catalog-export.js';
 
@@ -74,7 +76,9 @@ const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '
 
 const product = {
   format: { key: 'A5', orientation: 'portrait', width: 148, height: 210 },
-  cover: { enabled: false, caliper: 0.3, flapLeft: 0, flapRight: 0 },
+  bleed: { enabled: false, mm: 3 }, // Kern abfallend: Überfüller
+  milling: 3, // Fräsrand am Bund (Klebebindung)
+  cover: { enabled: false, caliper: 0.3, flapLeft: 0, flapRight: 0, bleed: false, bleedMm: 3 },
   pages: 16,
   binding: 'saddle',
   caliper: 0.1,
@@ -147,73 +151,100 @@ const svgEl = (name, attrs = {}, parent) => {
 };
 
 /**
- * Zeichnet eine Bogenseite: Felder mit Seitenzahl (im Feld gedreht), Kopfmarke,
- * Bund, Satzspiegel (um die Verdrängung zum Bund verschoben) und Falzlinien.
+ * Zeichnet eine Bogenseite maßstabsgetreu in mm: Felder mit Überfüller (orange) bzw.
+ * Fräsrand (violett), Endformat mit Schnittlinien, Seitenzahl (im Feld gedreht),
+ * Kopfmarke, Bund, Satzspiegel (um die Verdrängung zum Bund verschoben) und Falzlinien.
  */
-function renderSheetSvg(svg, sig, panels, side, { shift = 0 } = {}) {
-  const { cols, rows, cellW, cellH } = sig;
-  const W = cols * cellW;
-  const H = rows * cellH;
-  const m = 20;
-  svg.setAttribute('viewBox', `0 0 ${W + 2 * m} ${H + 2 * m}`);
+function renderSheetSvg(svg, sig, panels, side, { shift = 0, imp } = {}) {
+  imp = imp ?? sheetImposition(sig, panels, { page: format, binding: 'saddle', bleed: 0 });
+  const W = imp.width;
+  const H = imp.height;
+  const unit = Math.max(format.width, format.height) / 99; // Bezug für Strichstärken und Schriften
+  const m = 22 * unit;
+  svg.setAttribute('viewBox', `0 0 ${W + 2 * m} ${H + 2 * m + 10 * unit}`);
   svg.replaceChildren();
-  const mirror = side === 'back' ? -1 : 1;
-  const sx = (x) => mirror * x + W / 2 + m;
-  const sy = (y) => H / 2 - y + m;
+  const mx = (x, w = 0) => (side === 'back' ? W - x - w : x) + m; // Rückseite umgeschlagen
+  const my = (y) => y + m;
+  const byPanel = new Map(imp.cells.map((c) => [c.panel, c]));
+  const sw = (v) => `stroke-width:${v * unit}px`;
 
-  sheetLayout(sig, side, panels).forEach((line, row) => {
-    line.forEach((cell, col) => {
-      const x = m + col * cellW;
-      const y = m + row * cellH;
-      const cx = x + cellW / 2;
-      const cy = y + cellH / 2;
-      svgEl('rect', { x, y, width: cellW, height: cellH, class: `sheet-cell ${side}` }, svg);
-      // Inhalt aufrecht (Seitenkoordinaten) um die Feldmitte zeichnen, dann drehen
+  sheetLayout(sig, side, panels).forEach((line) => {
+    line.forEach((cell) => {
+      const g0 = byPanel.get(cell.panel);
+      // Zugaben: auf der Rückseite sind links und rechts vertauscht
+      const ml = side === 'back' ? { left: g0.m.right, right: g0.m.left } : { left: g0.m.left, right: g0.m.right };
+      const tl = side === 'back' ? { left: g0.types.right, right: g0.types.left } : { left: g0.types.left, right: g0.types.right };
+      const x = mx(g0.x, g0.w);
+      const y = my(g0.y);
+      const area = (type) => (type === 'spine' ? 'mill-area' : 'bleed-area');
+      // Zugaben als Streifen
+      if (ml.left > 0) svgEl('rect', { x, y, width: ml.left, height: g0.h, class: area(tl.left) }, svg);
+      if (ml.right > 0) svgEl('rect', { x: x + g0.w - ml.right, y, width: ml.right, height: g0.h, class: area(tl.right) }, svg);
+      if (g0.m.top > 0) svgEl('rect', { x, y, width: g0.w, height: g0.m.top, class: area(g0.types.top) }, svg);
+      if (g0.m.bottom > 0) svgEl('rect', { x, y: y + g0.h - g0.m.bottom, width: g0.w, height: g0.m.bottom, class: area(g0.types.bottom) }, svg);
+      // Endformat (beschnittene Seite)
+      const tx = mx(g0.trim.x, g0.trim.w);
+      const ty = my(g0.trim.y);
+      const cw = g0.trim.w;
+      const ch = g0.trim.h;
+      svgEl('rect', { x: tx, y: ty, width: cw, height: ch, class: `sheet-cell ${side}`, style: sw(0.6) }, svg);
+      const cx = tx + cw / 2;
+      const cy = ty + ch / 2;
+      // Inhalt aufrecht (Seitenkoordinaten) um die Seitenmitte zeichnen, dann drehen
       const quarter = cell.rotation % 180 !== 0;
-      const pw = quarter ? cellH : cellW;
-      const ph = quarter ? cellW : cellH;
+      const pw = quarter ? ch : cw;
+      const ph = quarter ? cw : ch;
       const px = cx - pw / 2;
       const py = cy - ph / 2;
       const g = svgEl('g', { transform: `rotate(${cell.rotation} ${cx} ${cy})` }, svg);
-      // Bund: ungerade Seiten (rechte Seiten) haben den Bund links, gerade rechts
       const spineLeft = cell.page % 2 === 1;
-      svgEl('rect', { x: spineLeft ? px : px + pw - 2.5, y: py, width: 2.5, height: ph, class: 'spine-mark' }, g);
+      const bar = 2.5 * unit;
+      svgEl('rect', { x: spineLeft ? px : px + pw - bar, y: py, width: bar, height: ph, class: 'spine-mark' }, g);
       const content = svgEl('g', { transform: `translate(${spineLeft ? -shift : shift} 0)` }, g);
-      svgEl('rect', { x: px + pw * 0.1, y: py + ph * 0.13, width: pw * 0.8, height: ph * 0.78, class: 'satzspiegel' }, content);
-      svgEl('rect', { x: cx - pw * 0.26, y: py + ph * 0.05, width: pw * 0.52, height: 4, rx: 1.5, class: 'page-head' }, content);
+      svgEl('rect', { x: px + pw * 0.1, y: py + ph * 0.13, width: pw * 0.8, height: ph * 0.78, class: 'satzspiegel', style: sw(0.6) }, content);
+      svgEl('rect', { x: cx - pw * 0.26, y: py + ph * 0.05, width: pw * 0.52, height: 4 * unit, rx: 1.5 * unit, class: 'page-head' }, content);
       const fontSize = Math.min(pw * (cell.page >= 100 ? 0.34 : 0.43), ph * 0.34);
       const t = svgEl('text', { x: cx, y: cy, class: 'page-no', style: `font-size:${fontSize}px` }, content);
       t.textContent = cell.page;
       if (needsUnderline(cell.page)) {
         const w = String(cell.page).length * fontSize * 0.55;
-        svgEl('rect', { x: cx - w / 2, y: cy + fontSize / 2, width: w, height: 2, class: 'page-underline' }, content);
+        svgEl('rect', { x: cx - w / 2, y: cy + fontSize / 2, width: w, height: 2 * unit, class: 'page-underline' }, content);
       }
       const title = svgEl('title', {}, g);
       title.textContent = `Seite ${cell.page}${cell.rotation ? ` (um ${cell.rotation}° gedreht)` : ''}`;
     });
   });
 
-  svgEl('rect', { x: m, y: m, width: W, height: H, class: 'sheet-outline' }, svg);
+  svgEl('rect', { x: m, y: m, width: W, height: H, class: 'sheet-outline', style: sw(1.2) }, svg);
 
-  // Falzlinien mit Nummer des Falzschritts (Nummer am oberen bzw. linken Ende)
+  // Falzlinien mit Nummer des Falzschritts: Lage aus dem Raster in mm umrechnen
+  const sheetUW = sig.cols * sig.cellW;
+  const sheetUH = sig.rows * sig.cellH;
+  const toX = (x) => imp.colX[Math.round((x + sheetUW / 2) / sig.cellW)];
+  const toY = (y) => imp.rowY[Math.round((sheetUH / 2 - y) / sig.cellH)];
   const used = new Set();
+  const r = 7 * unit;
   creases(sig).forEach((segs, k) => {
     for (const [[x1, y1], [x2, y2]] of segs) {
-      const a = [sx(x1), sy(y1)];
-      const b = [sx(x2), sy(y2)];
-      svgEl('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], class: 'crease', 'data-fold': k }, svg);
+      const a = [mx(toX(x1)), my(toY(y1))];
+      const b = [mx(toX(x2)), my(toY(y2))];
+      svgEl('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], class: 'crease', 'data-fold': k, style: `${sw(1.4)};stroke-dasharray:${5 * unit} ${3 * unit}` }, svg);
       const vertical = Math.abs(a[0] - b[0]) < 1e-6;
       const end = vertical ? (a[1] < b[1] ? a : b) : a[0] < b[0] ? a : b;
-      const pos = vertical ? [end[0], end[1] - 10] : [end[0] - 10, end[1]];
+      const pos = vertical ? [end[0], end[1] - 1.4 * r] : [end[0] - 1.4 * r, end[1]];
       const key = pos.map((v) => Math.round(v)).join(',');
       if (used.has(key)) continue;
       used.add(key);
       const g = svgEl('g', { class: 'crease-label', 'data-fold': k }, svg);
-      svgEl('circle', { cx: pos[0], cy: pos[1], r: 7 }, g);
-      const t = svgEl('text', { x: pos[0], y: pos[1] }, g);
+      svgEl('circle', { cx: pos[0], cy: pos[1], r, style: sw(1.4) }, g);
+      const t = svgEl('text', { x: pos[0], y: pos[1], style: `font-size:${9 * unit}px` }, g);
       t.textContent = k + 1;
     }
   });
+
+  // Maß des Falzbogens
+  const dim = svgEl('text', { x: m + W / 2, y: m + H + 14 * unit, class: 'sheet-dim', style: `font-size:${9 * unit}px` }, svg);
+  dim.textContent = `Falzbogen ${fmtNum(W)} × ${fmtNum(H)} mm`;
 }
 
 const schemaFront = document.getElementById('schema-front');
@@ -821,6 +852,7 @@ function updatePageInput() {
 $('binding').addEventListener('change', (e) => {
   product.binding = e.target.value;
   updatePageInput();
+  updateBleedInputs();
   renderGroups();
   tryApply();
 });
@@ -837,9 +869,19 @@ function updateFormatInputs() {
   $('format-key').value = product.format.key;
   $('format-orientation').value = product.format.orientation;
   $('format-orientation').hidden = custom;
-  $('format-custom').hidden = !custom;
-  $('format-width').value = String(product.format.width);
-  $('format-height').value = String(product.format.height);
+  // Breite × Höhe immer anzeigen; bei DIN-Formaten aus der Auswahl übernommen (nicht änderbar)
+  let shown = { width: product.format.width, height: product.format.height };
+  if (!custom) {
+    try {
+      shown = resolveFormat(product.format);
+    } catch {
+      /* ungültig: Eingabe belassen */
+    }
+  }
+  $('format-width').value = String(shown.width);
+  $('format-height').value = String(shown.height);
+  $('format-width').disabled = !custom;
+  $('format-height').disabled = !custom;
 }
 $('format-key').addEventListener('change', (e) => {
   const key = e.target.value;
@@ -854,6 +896,48 @@ $('format-key').addEventListener('change', (e) => {
 });
 $('format-orientation').addEventListener('change', (e) => {
   product.format = { ...product.format, orientation: e.target.value };
+  updateFormatInputs();
+  tryApply();
+});
+
+// --- Abfallend / Fräsrand ---
+function updateBleedInputs() {
+  $('core-bleed').checked = product.bleed.enabled;
+  $('core-bleed-field').hidden = !product.bleed.enabled;
+  $('core-bleed-mm').value = String(product.bleed.mm);
+  $('milling-field').hidden = product.binding !== 'perfect';
+  $('milling-mm').value = String(product.milling);
+  $('cover-bleed').checked = product.cover.bleed;
+  $('cover-bleed-field').hidden = !product.cover.bleed;
+  $('cover-bleed-mm').value = String(product.cover.bleedMm);
+}
+const mmValue = (el, max = 20) => {
+  const v = Number(String(el.value).replace(',', '.'));
+  return Number.isFinite(v) ? Math.min(max, Math.max(0, v)) : 0;
+};
+$('core-bleed').addEventListener('change', (e) => {
+  product.bleed.enabled = e.target.checked;
+  updateBleedInputs();
+  tryApply();
+});
+$('core-bleed-mm').addEventListener('change', (e) => {
+  product.bleed.mm = mmValue(e.target);
+  updateBleedInputs();
+  tryApply();
+});
+$('milling-mm').addEventListener('change', (e) => {
+  product.milling = mmValue(e.target);
+  updateBleedInputs();
+  tryApply();
+});
+$('cover-bleed').addEventListener('change', (e) => {
+  product.cover.bleed = e.target.checked;
+  updateBleedInputs();
+  tryApply();
+});
+$('cover-bleed-mm').addEventListener('change', (e) => {
+  product.cover.bleedMm = mmValue(e.target);
+  updateBleedInputs();
   tryApply();
 });
 for (const id of ['format-width', 'format-height']) {
@@ -998,6 +1082,7 @@ function applyProduction() {
   state.reading = false;
   computePile();
   coverData = hasCover() ? computeCover(production.totalLeaves, product.caliper, product.cover, format) : null;
+  if (coverData) coverData.bleed = coverBleed(product.cover, product.cover.bleed ? product.cover.bleedMm : 0);
   buildLeaves();
   buildCover();
   renderCoverTab();
@@ -1105,9 +1190,30 @@ function selectView(mode, sheet = view.sheet) {
   renderSchemaAll();
 }
 
+/** Falzbogen (mm) eines Bogens der Produktion mit Überfüller und Fräsrand. */
+function impositionOf(s = view.sheet) {
+  const sheet = production.sheets[s];
+  return sheetImposition(sheet.sig, sheet.panels, {
+    page: format,
+    binding: production.binding,
+    bleed: product.bleed.enabled ? product.bleed.mm : 0,
+    milling: product.milling,
+  });
+}
+
+/** Text der Zugaben, z. B. „Überfüller 3 mm, Fräsrand 3 mm“. */
+function allowanceText() {
+  const parts = [];
+  parts.push(product.bleed.enabled ? `Überfüller ${fmtNum(product.bleed.mm)} mm` : 'nicht abfallend');
+  if (production.binding === 'perfect') parts.push(`Fräsrand ${fmtNum(product.milling)} mm`);
+  else parts.push('Bund ohne Zugabe');
+  return parts.join(', ');
+}
+
 function renderSchemaAll() {
   const sheet = sheetOf();
-  const opts = { shift: creepUnits(view.sheet) };
+  const imp = impositionOf();
+  const opts = { shift: creepUnits(view.sheet) * MM_PER_UNIT, imp };
   renderSheetSvg(schemaFront, sheet.sig, sheet.panels, 'front', opts);
   renderSheetSvg(schemaBack, sheet.sig, sheet.panels, 'back', opts);
   $('schema-title').textContent = `Ausschuss Bogen ${view.sheet + 1} von ${production.n} (${sheet.scheme}) – Seiten ${sheet.pageRanges}`;
@@ -1115,7 +1221,9 @@ function renderSchemaAll() {
   const parts = [
     `${escapeHtml(describeEntry(sheet.sig.entry).longText)}. Endformat ${escapeHtml(format.label)}${
       product.format.key === 'custom' ? '' : ` (${format.width} × ${format.height} mm)`
-    }, Bogenformat netto <strong>${sheetSizeText(sheet.sig)}</strong> (ohne Beschnitt).`,
+    }. <strong>Falzbogen ${fmtNum(imp.width)} × ${fmtNum(imp.height)} mm</strong> (Endformat netto ${fmtNum(imp.netWidth)} × ${fmtNum(
+      imp.netHeight,
+    )} mm; ${allowanceText()}).`,
   ];
   if (sheet.sig.bindingBottom) parts.push('Bund waagrecht: die Seiten stehen im Feld um 90° gedreht.');
   if (production.binding === 'saddle' && production.n > 1) {
@@ -1130,9 +1238,10 @@ function renderSchemaAll() {
   note.innerHTML = parts.join(' ');
 }
 
-/** Bogenformat netto (ohne Beschnitt) in mm. */
-function sheetSizeText(sig) {
-  return `${fmtNum(sig.cols * sig.cellW * MM_PER_UNIT)} × ${fmtNum(sig.rows * sig.cellH * MM_PER_UNIT)} mm`;
+/** Falzbogenformat (mit Überfüller und Fräsrand) in mm. */
+function sheetSizeText(s) {
+  const imp = impositionOf(s);
+  return `${fmtNum(imp.width)} × ${fmtNum(imp.height)} mm`;
 }
 
 function renderOverview() {
@@ -1152,7 +1261,7 @@ function renderOverview() {
       : `${s + 1}. im Stapel`;
     tr.innerHTML = `<td><i class="dot" style="background:${sheetColor(s)}"></i>Bogen ${s + 1}</td>
       <td title="${escapeHtml(describeEntry(sheet.sig.entry).longText)}">${sheet.scheme}</td>
-      <td>${sheetSizeText(sheet.sig)}</td>
+      <td>${sheetSizeText(s)}</td>
       <td>${sheet.pageRanges}</td><td>${position}</td><td>${saddle ? fmtMm(sheet.creep) : '–'}</td>`;
     tr.classList.toggle('active', view.sheet === s);
     tr.title = 'Bogen anzeigen';
@@ -1474,11 +1583,19 @@ function updateUi(pose) {
 // ---------------------------------------------------------------------------
 
 function renderCoverSvg(svg, data, side) {
-  const m = { top: 34, bottom: 40, left: 34, right: 12 };
+  const b = data.bleed; // Überfüller rund um den offenen Umschlag
+  const m0 = { top: 34, bottom: 40, left: 34, right: 12 };
   const W = data.totalWidth;
   const H = data.height;
+  // Ränder um den Überfüller erweitern; m = Lage des Endformats (Schnittkante)
+  const m = { top: m0.top + b.top, bottom: m0.bottom + b.bottom, left: m0.left + b.left, right: m0.right + b.right };
   svg.setAttribute('viewBox', `0 0 ${W + m.left + m.right} ${H + m.top + m.bottom}`);
   svg.replaceChildren();
+  const gW = W + b.left + b.right;
+  const gH = H + b.top + b.bottom;
+  if (gW > W || gH > H) {
+    svgEl('rect', { x: m.left - b.left, y: m.top - b.top, width: gW, height: gH, class: 'bleed-area' }, svg);
+  }
   // Innenseite: Umschlag umgedreht (um die senkrechte Achse) -> Reihenfolge gespiegelt
   const parts = data.parts.map((p) => ({ ...p, x: side === 'outside' ? p.x : W - p.x - p.width }));
   const insideNames = { front: 'U2 – Innenseite vorne', back: 'U3 – Innenseite hinten', spine: 'Rücken', flapLeft: 'linke Klappe', flapRight: 'rechte Klappe' };
@@ -1507,11 +1624,14 @@ function renderCoverSvg(svg, data, side) {
       svgEl('line', { x1: m.left + xEdge, y1: m.top, x2: m.left + xEdge, y2: m.top + H, class: 'cover-crease' }, svg);
     }
   }
-  svgEl('rect', { x: m.left, y: m.top, width: W, height: H, class: 'cover-outline' }, svg);
+  svgEl('rect', { x: m.left, y: m.top, width: W, height: H, class: gW > W || gH > H ? 'cover-outline trim' : 'cover-outline' }, svg);
   // Gesamtbreite und Höhe
   svgEl('line', { x1: m.left, y1: m.top + H + 14, x2: m.left + W, y2: m.top + H + 14, class: 'dim-line' }, svg);
   const tw = svgEl('text', { x: m.left + W / 2, y: m.top + H + 30, class: 'cover-dim strong' }, svg);
-  tw.textContent = `Gesamtbreite ${fmtNum(W)} mm`;
+  tw.textContent =
+    gW > W || gH > H
+      ? `Gesamtbreite ${fmtNum(W)} mm · mit Überfüller ${fmtNum(gW)} × ${fmtNum(gH)} mm`
+      : `Gesamtbreite ${fmtNum(W)} mm`;
   svgEl('line', { x1: m.left - 14, y1: m.top, x2: m.left - 14, y2: m.top + H, class: 'dim-line' }, svg);
   const th = svgEl('text', { x: m.left - 20, y: m.top + H / 2, class: 'cover-dim strong', transform: `rotate(-90 ${m.left - 20} ${m.top + H / 2})` }, svg);
   th.textContent = `${fmtNum(H)} mm`;
@@ -1536,7 +1656,20 @@ function renderCoverTab() {
     ['Rückenbreite Umschlag', `${fmtMm(d.blockMm)} + 2 × ${fmtMm(d.coverCaliper)} = ${fmtMm(d.spineMm)}`],
     ['linke Klappe', d.flapLeft > 0 ? `${fmtNum(d.flapLeft)} mm (an U4)` : 'keine'],
     ['rechte Klappe', d.flapRight > 0 ? `${fmtNum(d.flapRight)} mm (an U1)` : 'keine'],
-    ['Umschlag offen', `${fmtNum(d.totalWidth)} × ${fmtNum(d.height)} mm`],
+    ['Umschlag offen (Endformat)', `${fmtNum(d.totalWidth)} × ${fmtNum(d.height)} mm`],
+    [
+      'Überfüller Umschlag',
+      product.cover.bleed
+        ? `${fmtNum(product.cover.bleedMm)} mm – oben/unten${d.bleed.left > 0 ? ', links/rechts' : ' (links/rechts keiner, da mit Klappen)'}`
+        : 'nicht abfallend',
+    ],
+    ['Umschlag offen mit Überfüller', `${fmtNum(d.totalWidth + d.bleed.left + d.bleed.right)} × ${fmtNum(d.height + d.bleed.top + d.bleed.bottom)} mm`],
+    [
+      'Beschnitt nach dem Binden',
+      d.bleed.left > 0 || (!d.flapLeft && !d.flapRight)
+        ? 'dreiseitig mit dem Inhalt (Kopf, Fuß, Vorderschnitt)'
+        : 'Kopf und Fuß mit dem Inhalt; Vorderschnitt nicht (Klappen)',
+    ],
   ];
   $('cover-facts').innerHTML = rows.map(([k, v]) => `<tr><th>${k}</th><td>${escapeHtml(v)}</td></tr>`).join('');
   renderCoverSvg($('cover-outside'), d, 'outside');
@@ -2022,6 +2155,7 @@ function frame() {
 
 // Start
 updateFormatInputs();
+updateBleedInputs();
 updatePageInput();
 renderGroups();
 tryApply();
@@ -2049,6 +2183,9 @@ window.falzschema = {
     $('binding').value = product.binding;
     $('caliper').value = product.caliper.toFixed(2);
     updateFormatInputs();
+    product.cover = { bleed: false, bleedMm: 3, ...product.cover };
+    product.bleed = { enabled: false, mm: 3, ...product.bleed };
+    updateBleedInputs();
     $('cover-enabled').checked = product.cover.enabled;
     $('cover-caliper').value = product.cover.caliper.toFixed(2);
     $('flap-right').value = String(product.cover.flapRight);

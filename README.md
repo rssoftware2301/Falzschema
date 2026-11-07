@@ -43,9 +43,16 @@ npm run build
   Register, Ansicht, fokussiertes Eingabefeld); die „?“-Schalter an den
   Abschnitten führen direkt zum jeweiligen Thema.
 - **Endformat**: DIN A3–A7 bzw. B4–B6, jeweils hoch oder quer, oder manuell
-  Breite × Höhe in mm. Bestimmt die Proportionen der Seiten auf dem Bogen (3D und
+  Breite × Höhe in mm (bei DIN-Formaten werden Breite und Höhe angezeigt). Bestimmt die Proportionen der Seiten auf dem Bogen (3D und
   Ausschuss), das Bogenformat (netto) in der Bogenübersicht, die Verdrängung und
   die Umschlagmaße.
+- **Abfallend / Fräsrand**: „Kern abfallend“ mit Überfüller (z. B. 3 mm) an Kopf,
+  Fuß und Vorderschnitt; am Bund bei Klebebindung der Fräsrand, bei Sammelheftung
+  keine Zugabe (Seiten stoßen direkt aneinander). Der Ausschuss zeigt Überfüller
+  (orange), Fräsrand (violett) und Schnittlinien maßstabsgetreu in mm sowie das
+  resultierende **Falzbogenformat** (auch in der Bogenübersicht).
+  „Umschlag abfallend“: Überfüller rund um den offenen Umschlag, mit Klappen
+  nur oben und unten.
 - **Produkt**: Seitenumfang frei eingeben (bis 2000 Seiten, bis 1000 Bogen je Gruppe; Sammelheftung:
   Vielfaches von 4, Klebebindung: Vielfaches von 2, da auch Einzelblätter
   F2-1 verklebt werden können),

@@ -691,3 +691,78 @@ export function computeCover(leaves, caliper, cover, format = PAGE_FORMAT_MM) {
   }
   return { blockMm, coverCaliper, spineMm, flapLeft, flapRight, height: format.height, width: format.width, totalWidth: round(x), parts };
 }
+
+// ---------------------------------------------------------------------------
+// Falzbogen mit Überfüller (abfallend) und Fräsrand
+// ---------------------------------------------------------------------------
+
+/**
+ * Kantenart jeder Seite eines Feldes, bezogen auf die Vorderseite des Bogens:
+ * 'head' (Kopf), 'foot' (Fuß), 'spine' (Bund) oder 'fore' (Vorderschnitt) für
+ * die Feldseiten left/right/top/bottom.
+ */
+export function panelEdgeTypes(panel) {
+  const [ux, uy] = panel.front.up;
+  const right = [uy, -ux]; // rechte Richtung der aufrechten Seite
+  // ungerade (rechte) Seiten haben den Bund links, gerade rechts
+  const spine = panel.front.page % 2 === 1 ? [-right[0], -right[1]] : right;
+  const dirs = { left: [-1, 0], right: [1, 0], top: [0, 1], bottom: [0, -1] };
+  const types = {};
+  for (const [side, [dx, dy]] of Object.entries(dirs)) {
+    const up = ux * dx + uy * dy;
+    types[side] = up > 0.5 ? 'head' : up < -0.5 ? 'foot' : spine[0] * dx + spine[1] * dy > 0.5 ? 'spine' : 'fore';
+  }
+  return types;
+}
+
+/**
+ * Maße eines Falzbogens mit Überfüller und Fräsrand (in mm, Vorderseite, y von oben).
+ *
+ * Zugaben je Seitenkante:
+ *  - Kopf, Fuß, Vorderschnitt: Überfüller (nur wenn abfallend, sonst 0)
+ *  - Bund: Klebebindung = Fräsrand, Sammelheftung = 0 (Seiten stoßen am Bund direkt aneinander)
+ *
+ * @param {object} sig      Ergebnis von computeSignature
+ * @param {Array}  panels   Felder mit Seitenzahlen (z. B. production.sheets[s].panels)
+ * @param {object} opts     { page: {width, height}, binding, bleed, milling }
+ */
+export function sheetImposition(sig, panels, { page, binding, bleed = 0, milling = 0 }) {
+  const margin = (type) => (type === 'spine' ? (binding === 'perfect' ? milling : 0) : bleed);
+  const cells = panels.map((p) => {
+    const types = panelEdgeTypes(p);
+    const rotated = Math.abs(p.front.up[0]) > 0.5; // Seite steht im Feld um 90° gedreht
+    const pw = rotated ? page.height : page.width;
+    const ph = rotated ? page.width : page.height;
+    const m = { left: margin(types.left), right: margin(types.right), top: margin(types.top), bottom: margin(types.bottom) };
+    return { panel: p.id, row: p.row, col: p.col, types, pw, ph, m };
+  });
+  const colW = Array.from({ length: sig.cols }, (_, c) =>
+    Math.max(...cells.filter((x) => x.col === c).map((x) => x.pw + x.m.left + x.m.right)),
+  );
+  const rowH = Array.from({ length: sig.rows }, (_, r) =>
+    Math.max(...cells.filter((x) => x.row === r).map((x) => x.ph + x.m.top + x.m.bottom)),
+  );
+  const colX = [0];
+  colW.forEach((w) => colX.push(round(colX[colX.length - 1] + w)));
+  const rowY = [0];
+  rowH.forEach((h) => rowY.push(round(rowY[rowY.length - 1] + h)));
+  for (const cell of cells) {
+    cell.x = colX[cell.col];
+    cell.y = rowY[cell.row];
+    cell.w = colW[cell.col];
+    cell.h = rowH[cell.row];
+    cell.trim = { x: round(cell.x + cell.m.left), y: round(cell.y + cell.m.top), w: cell.pw, h: cell.ph };
+  }
+  const netW = round(Math.max(...Array.from({ length: sig.rows }, (_, r) => cells.filter((x) => x.row === r).reduce((s, x) => s + x.pw, 0))));
+  const netH = round(Math.max(...Array.from({ length: sig.cols }, (_, c) => cells.filter((x) => x.col === c).reduce((s, x) => s + x.ph, 0))));
+  return { width: colX[colX.length - 1], height: rowY[rowY.length - 1], netWidth: netW, netHeight: netH, colX, rowY, cells };
+}
+
+/**
+ * Überfüller des offenen Umschlags: oben und unten immer, links und rechts nur
+ * ohne Klappen (mit Klappen wird der Umschlag nicht mit dem Buchblock vorne beschnitten).
+ */
+export function coverBleed(cover, bleed) {
+  const flaps = (cover.flapLeft || 0) > 0 || (cover.flapRight || 0) > 0;
+  return { top: bleed, bottom: bleed, left: flaps ? 0 : bleed, right: flaps ? 0 : bleed };
+}

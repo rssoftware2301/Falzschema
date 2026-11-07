@@ -284,3 +284,45 @@ test('Querformat: Felder im Bogen sind quer, Paginierung unverändert', () => {
   const f87 = computeSignature('F8-7', { pageWidth: 99, pageHeight: 70 });
   assert.deepEqual([f87.cellW, f87.cellH], [70, 99]);
 });
+
+test('Falzbogen mit Überfüller und Fräsrand (F16-7, A5 hoch)', async () => {
+  const { sheetImposition, panelEdgeTypes } = await import('../src/falzschema.js');
+  const sig = computeSignature('F16-7');
+  const page = { width: 148, height: 210 };
+  // Seite 1 (rechte Seite): Kopf oben, Bund links
+  const p1 = sig.panels.find((p) => p.front.page === 1 || p.back.page === 1);
+  assert.ok(p1);
+  // Sammelheftung: am Bund 0 → 4 × (148 + 3) × 2 × (210 + 6)
+  const saddle = sheetImposition(sig, sig.panels, { page, binding: 'saddle', bleed: 3, milling: 3 });
+  assert.deepEqual([saddle.width, saddle.height], [604, 432]);
+  assert.deepEqual([saddle.netWidth, saddle.netHeight], [592, 420]);
+  // Klebebindung: Fräsrand am Bund → 4 × (148 + 3 + 3)
+  const perfect = sheetImposition(sig, sig.panels, { page, binding: 'perfect', bleed: 3, milling: 3 });
+  assert.deepEqual([perfect.width, perfect.height], [616, 432]);
+  // nicht abfallend, Sammelheftung: genau das Endformat
+  const net = sheetImposition(sig, sig.panels, { page, binding: 'saddle', bleed: 0 });
+  assert.deepEqual([net.width, net.height], [592, 420]);
+  // Kantenarten: obere Reihe steht auf dem Kopf -> Kopf an der Mittellinie
+  const top = sig.panels.find((p) => p.row === 0 && p.col === 0);
+  assert.equal(panelEdgeTypes(top).bottom, 'head');
+  assert.equal(panelEdgeTypes(top).top, 'foot');
+});
+
+test('Falzbogen F8-7 (Seiten im Feld gedreht) und Einzelblatt F2-1', async () => {
+  const { sheetImposition } = await import('../src/falzschema.js');
+  const page = { width: 148, height: 210 };
+  const f87 = computeSignature('F8-7');
+  const s = sheetImposition(f87, f87.panels, { page, binding: 'perfect', bleed: 3, milling: 4 });
+  // Spalten: Seitenhöhe quer + Kopf (3) + Fuß/Vorderschnitt…; Zeilen: Seitenbreite + Bund (4) + Vorderschnitt (3)
+  assert.deepEqual([s.netWidth, s.netHeight], [420, 296]);
+  assert.deepEqual([s.width, s.height], [432, 310]);
+  const f21 = computeSignature('F2-1');
+  const e = sheetImposition(f21, f21.panels, { page, binding: 'perfect', bleed: 3, milling: 3 });
+  assert.deepEqual([e.width, e.height], [154, 216]);
+});
+
+test('Überfüller Umschlag: links/rechts nur ohne Klappen', async () => {
+  const { coverBleed } = await import('../src/falzschema.js');
+  assert.deepEqual(coverBleed({ flapLeft: 0, flapRight: 0 }, 3), { top: 3, bottom: 3, left: 3, right: 3 });
+  assert.deepEqual(coverBleed({ flapLeft: 80, flapRight: 0 }, 3), { top: 3, bottom: 3, left: 0, right: 0 });
+});

@@ -1126,3 +1126,42 @@ table.overview .dot {
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Überfüller / Fräsrand ------------------------------------------------- */
+.bleed-options {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.bleed-area {
+  fill: #f0a24a;
+  fill-opacity: 0.75;
+}
+.mill-area {
+  fill: #b9a3e8;
+  fill-opacity: 0.6;
+}
+.sheet-dim {
+  fill: var(--text);
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+.sheet-cell {
+  stroke-dasharray: none;
+}
+.cover-outline.trim {
+  stroke: #c0392b;
+  stroke-dasharray: 4 3;
+}
+#cover-options .check + .field,
+#cover-fields .check {
+  margin-top: 10px;
+}
+input:disabled {
+  background: #f1f3f6;
+  color: var(--muted);
+}
+[hidden] {
+  display: none !important;
+}
