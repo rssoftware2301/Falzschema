@@ -1062,3 +1062,67 @@ table.overview .dot {
 #format-custom input {
   width: 64px;
 }
+
+/* --- Umschlag-Animation ---------------------------------------------------- */
+.cover-top {
+  display: grid;
+  grid-template-columns: minmax(280px, 520px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  margin-bottom: 12px;
+}
+.cover-anim {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel);
+}
+.cover-anim-title {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  border-bottom: 1px solid var(--border);
+}
+.cover-viewport {
+  position: relative;
+  height: 46vh;
+  min-height: 280px;
+  background: radial-gradient(ellipse at center, #f9fbfd 0%, #dfe5ed 100%);
+}
+.cover-viewport canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.cover-anim-controls {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+.cover-anim-controls input {
+  width: 100%;
+}
+.cov-steps {
+  margin: 0;
+  padding: 4px 14px 12px 34px;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.cov-steps li {
+  margin: 3px 0;
+}
+.cov-steps li.active {
+  color: var(--text);
+  font-weight: 600;
+}
+.cov-steps li.done {
+  color: #2da44e;
+}
+@media (max-width: 1000px) {
+  .cover-top {
+    grid-template-columns: 1fr;
+  }
+}

@@ -74,6 +74,9 @@ npm run build
   rechte Klappe (an U1) und linke Klappe (an U4) in mm. Rückenbreite des Umschlags
   = Buchblock + 2 × Umschlagstärke. Eigenes Register „Umschlag“ mit maßstabs-
   getreuer Außen- und Innenansicht (Teilbreiten, Gesamtbreite, Rill-/Falzlinien).
+  Im Register läuft außerdem eine maßstabsgetreue 3D-Animation (mm): Umschlag
+  flach mit Innenseite oben, Klappen einschlagen, Buchblock mit beleimtem Rücken
+  aufsetzen, Vorder- und Rückseite hochklappen, fertiges Buch hinlegen.
   In der Zusammentrag-Animation wird der Umschlag zuletzt herangeführt, die
   Klappen werden eingeschlagen und der Umschlag um den Buchblock gelegt; beim
   Blättern wird zuerst der Umschlag aufgeschlagen (U2), am Ende erscheint U3.

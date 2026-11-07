@@ -583,7 +583,7 @@ const COVER_COLORS = { outside: '#f2d8c2', inside: '#fbfbfb', edge: 0x9a6b4f };
 const GLUE_WIDTH = 2.2; // Klebstoffschicht am Rücken (Darstellung)
 let coverObjects = []; // [{ key, obj, w, h }]
 
-function coverTexture({ w, h, title, sub, color, scale, vertical = false }) {
+function coverTexture({ w, h, title, sub, color, scale, vertical = false, flip = false }) {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(8, Math.round(w * scale));
   canvas.height = Math.max(8, Math.round(h * scale));
@@ -596,6 +596,7 @@ function coverTexture({ w, h, title, sub, color, scale, vertical = false }) {
   ctx.save();
   ctx.translate(canvas.width / 2, canvas.height / 2);
   if (vertical) ctx.rotate(-Math.PI / 2);
+  if (flip) ctx.rotate(Math.PI);
   const span = vertical ? canvas.height : canvas.width;
   const size = Math.min(span * 0.11, (vertical ? canvas.width : canvas.height) * 0.6, 14 * scale);
   ctx.fillStyle = '#5b3a26';
@@ -790,6 +791,7 @@ function selectTab(tab) {
     $(panel).hidden = name !== tab;
   }
   if (tab === 'anim') resize();
+  if (tab === 'cover') resizeCoverView();
 }
 $('tab-anim').addEventListener('click', () => selectTab('anim'));
 $('tab-schema').addEventListener('click', () => selectTab('schema'));
@@ -1520,7 +1522,10 @@ function renderCoverTab() {
   $('cover-empty').hidden = has;
   $('cover-content').hidden = !has;
   $('cover-title').textContent = has ? `Umschlag – offen ${fmtNum(coverData.totalWidth)} × ${fmtNum(coverData.height)} mm` : 'Umschlag';
-  if (!has) return;
+  if (!has) {
+    buildCoverAnim(); // entfernt eine bisherige Animation
+    return;
+  }
   const d = coverData;
   $('cover-format-note').textContent = `${fmtNum(format.width)} × ${fmtNum(format.height)} mm (${format.label})`;
   const rows = [
@@ -1536,6 +1541,228 @@ function renderCoverTab() {
   $('cover-facts').innerHTML = rows.map(([k, v]) => `<tr><th>${k}</th><td>${escapeHtml(v)}</td></tr>`).join('');
   renderCoverSvg($('cover-outside'), d, 'outside');
   renderCoverSvg($('cover-inside'), d, 'inside');
+  coverAnim.t = coverAnim.target = 0;
+  buildCoverAnim();
+}
+
+// ---------------------------------------------------------------------------
+// Umschlag-Animation im Register „Umschlag“ (maßstabsgetreu in mm, y nach oben)
+// Ablauf: flach (Innenseite oben) -> Klappen einschlagen -> Buchblock mit beleimtem
+// Rücken auf den Umschlagrücken setzen -> Vorder- und Rückseite hochklappen
+// ---------------------------------------------------------------------------
+
+const covContainer = $('cover-viewport');
+const covRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+covRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+covContainer.appendChild(covRenderer.domElement);
+const covScene = new THREE.Scene();
+covScene.add(new THREE.HemisphereLight(0xffffff, 0xb8c2d0, 2.0));
+const covSun = new THREE.DirectionalLight(0xffffff, 1.2);
+covSun.position.set(300, 600, 500);
+covScene.add(covSun);
+const covCamera = new THREE.PerspectiveCamera(35, 1, 1, 50000);
+const covControls = new OrbitControls(covCamera, covRenderer.domElement);
+covControls.enableDamping = true;
+const covRoot = new THREE.Group();
+covScene.add(covRoot);
+const coverAnim = {
+  t: 0,
+  target: 0,
+  parts: [],
+  cameraPos: new THREE.Vector3(),
+  cameraTarget: new THREE.Vector3(),
+  endPos: new THREE.Vector3(),
+  endTarget: new THREE.Vector3(),
+  userCamera: false, // Kamera vom Benutzer bewegt -> keine automatische Kamerafahrt
+};
+covControls.addEventListener('start', () => (coverAnim.userCamera = true));
+
+function resizeCoverView() {
+  const { clientWidth: w, clientHeight: h } = covContainer;
+  if (!w || !h) return;
+  covRenderer.setSize(w, h, false);
+  covCamera.aspect = w / h;
+  covCamera.updateProjectionMatrix();
+}
+new ResizeObserver(resizeCoverView).observe(covContainer);
+
+/** Drehung um eine Achse parallel zu z durch (px, py). */
+function pivotZ(px, py, angle) {
+  return new THREE.Matrix4()
+    .makeTranslation(px, py, 0)
+    .multiply(new THREE.Matrix4().makeRotationZ(angle))
+    .multiply(new THREE.Matrix4().makeTranslation(-px, -py, 0));
+}
+
+function covMaterial(tex, color) {
+  return new THREE.MeshStandardMaterial(tex ? { map: tex, roughness: 0.75 } : { color, roughness: 0.8 });
+}
+
+function buildCoverAnim() {
+  for (const { mesh } of coverAnim.parts) {
+    (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).forEach((m) => {
+      m.map?.dispose();
+      m.dispose();
+    });
+    mesh.geometry.dispose();
+    covRoot.remove(mesh);
+  }
+  coverAnim.parts = [];
+  if (!coverData) return;
+  const d = coverData;
+  const W = format.width;
+  const H = format.height;
+  const ct = Math.max(d.coverCaliper, 0.4); // Umschlagstärke (mind. 0,4 mm, damit sichtbar)
+  const gap = 0.15;
+  const blockT = Math.max(d.blockMm, 0.5);
+  const spine = blockT + 2 * ct;
+  const xs0 = -spine / 2;
+  const xs1 = spine / 2;
+  const scale = 2;
+  const edge = 0xc9a58a;
+  const tex = (w, title, sub, side, flip = false) =>
+    coverTexture({ w, h: H, title, sub, color: side === 'out' ? COVER_COLORS.outside : COVER_COLORS.inside, scale, vertical: w < 40, flip });
+
+  // Teile: Breite (x), Lage im flachen Zustand, Beschriftung innen/außen
+  const defs = [
+    { key: 'front', x0: xs0 - W, w: W, ins: ['U2', 'Innenseite U1'], out: ['U1', 'Vorderseite'] },
+    { key: 'spine', x0: xs0, w: spine, ins: ['Rücken'], out: [`Rücken ${fmtNum(d.spineMm)} mm`] },
+    { key: 'back', x0: xs1, w: W, ins: ['U3', 'Innenseite U4'], out: ['U4', 'Rückseite'] },
+  ];
+  if (d.flapRight > 0) defs.push({ key: 'flapRight', x0: xs0 - W - d.flapRight, w: d.flapRight, ins: ['rechte Klappe', 'innen'], out: ['rechte Klappe'] });
+  if (d.flapLeft > 0) defs.push({ key: 'flapLeft', x0: xs1 + W, w: d.flapLeft, ins: ['linke Klappe', 'innen'], out: ['linke Klappe'] });
+
+  for (const def of defs) {
+    const geom = new THREE.BoxGeometry(def.w, ct, H);
+    const side = covMaterial(null, edge);
+    // Reihenfolge der Box-Flächen: +x, -x, +y (innen), -y (außen), +z, -z
+    // Außenseite von U1 so beschriften, dass sie am hingelegten Buch lesbar ist
+    const outTex = tex(def.w, def.out[0], def.out[1], 'out', def.key === 'front');
+    const mesh = new THREE.Mesh(geom, [side, side, covMaterial(tex(def.w, def.ins[0], def.ins[1], 'in')), covMaterial(outTex), side, side]);
+    mesh.matrixAutoUpdate = false;
+    const base = new THREE.Matrix4().makeTranslation(def.x0 + def.w / 2, ct / 2, 0);
+    let pose;
+    if (def.key === 'spine') pose = () => base;
+    else if (def.key === 'front') pose = (k) => pivotZ(xs0, 0, (-Math.PI / 2) * k.up).multiply(base);
+    else if (def.key === 'back') pose = (k) => pivotZ(xs1, 0, (Math.PI / 2) * k.up).multiply(base);
+    else if (def.key === 'flapRight')
+      pose = (k) => pivotZ(xs0, 0, (-Math.PI / 2) * k.up).multiply(pivotZ(xs0 - W, ct + gap / 2, -Math.PI * k.flap)).multiply(base);
+    else pose = (k) => pivotZ(xs1, 0, (Math.PI / 2) * k.up).multiply(pivotZ(xs1 + W, ct + gap / 2, Math.PI * k.flap)).multiply(base);
+    covRoot.add(mesh);
+    coverAnim.parts.push({ mesh, pose });
+  }
+
+  // Buchblock (steht auf dem Rücken): Dicke = Rückenstärke, Höhe = Seitenbreite, Tiefe = Seitenhöhe
+  const pageTex = (title, sub) => coverTexture({ w: H, h: W, title, sub, color: '#ffffff', scale, vertical: false });
+  const paper = covMaterial(null, 0xf3f4f6);
+  const blockGeom = new THREE.BoxGeometry(blockT, W, H);
+  const blockMesh = new THREE.Mesh(blockGeom, [
+    covMaterial(pageTex(`Seite ${production.pages}`, 'letzte Seite')),
+    covMaterial(pageTex('Seite 1', 'Buchblock')),
+    paper, // Vorderschnitt
+    covMaterial(null, 0xe9d9a8), // beleimter Rücken
+    paper,
+    paper,
+  ]);
+  blockMesh.matrixAutoUpdate = false;
+  const blockY = ct + gap + W / 2;
+  coverAnim.parts.push({
+    mesh: blockMesh,
+    pose: (k) => new THREE.Matrix4().makeTranslation(0, blockY + (1 - k.block) * (W * 0.45 + 30), 0),
+  });
+  covRoot.add(blockMesh);
+
+  // Kamera: ganzen offenen Umschlag zeigen
+  const total = d.totalWidth + spine - d.spineMm;
+  coverAnim.cameraTarget.set(0, W * 0.55, 0);
+  coverAnim.cameraPos.set(total * 0.1, total * 0.85, total * 1.15);
+  coverAnim.bookHeight = W;
+  // Endansicht: näher am hingelegten Buch
+  const S = Math.max(W, H);
+  coverAnim.endTarget.set(0, W / 2, 0);
+  coverAnim.endPos.set(S * 0.1, W / 2 + S * 1.3, S * 1.45);
+  coverAnim.userCamera = false;
+  covCamera.position.copy(coverAnim.cameraPos);
+  covControls.target.copy(coverAnim.cameraTarget);
+  covControls.update();
+  applyCoverAnim();
+  resizeCoverView();
+}
+
+/** Phasen der Animation aus dem Fortschritt t (0..1). */
+function coverAnimPhases(t) {
+  return {
+    flap: ease(clamp01((t - 0.05) / 0.22)),
+    block: ease(clamp01((t - 0.27) / 0.23)),
+    up: ease(clamp01((t - 0.5) / 0.3)),
+    lay: ease(clamp01((t - 0.82) / 0.18)),
+  };
+}
+
+function applyCoverAnim() {
+  const k = coverAnimPhases(coverAnim.t);
+  // zum Schluss das fertige Buch hinlegen (U1 oben)
+  covRoot.matrixAutoUpdate = false;
+  covRoot.matrix.copy(pivotZ(0, (coverAnim.bookHeight ?? 0) / 2, (-Math.PI / 2) * k.lay));
+  covRoot.matrixWorldNeedsUpdate = true;
+  for (const { mesh, pose } of coverAnim.parts) {
+    mesh.matrix.copy(pose(k));
+    mesh.matrixWorldNeedsUpdate = true;
+  }
+}
+
+function updateCoverAnimUi() {
+  const t = coverAnim.t;
+  const running = Math.abs(coverAnim.target - t) > 1e-6;
+  $('btn-cov-play').textContent = running ? '⏸ Anhalten' : t >= 1 - 1e-6 ? '▶ Nochmals' : '▶ Abspielen';
+  $('cov-scrub').value = t;
+  const items = [...$('cov-steps').children];
+  items.forEach((li, i) => {
+    const from = Number(li.dataset.from);
+    const to = i + 1 < items.length ? Number(items[i + 1].dataset.from) : 1;
+    li.classList.toggle('active', t >= from && (t < to || (i === items.length - 1 && t < 1 - 1e-6)) && !(i === 1 && !(coverData?.flapLeft || coverData?.flapRight)));
+    li.classList.toggle('done', t >= to - 1e-6 || t >= 1 - 1e-6);
+  });
+}
+
+$('btn-cov-play').addEventListener('click', () => {
+  if (Math.abs(coverAnim.target - coverAnim.t) > 1e-6) {
+    coverAnim.target = coverAnim.t; // anhalten
+    return;
+  }
+  if (coverAnim.t >= 1 - 1e-6) coverAnim.t = 0;
+  coverAnim.target = 1;
+});
+$('btn-cov-reset').addEventListener('click', () => {
+  coverAnim.t = coverAnim.target = 0;
+});
+$('cov-scrub').addEventListener('input', (e) => {
+  coverAnim.t = coverAnim.target = Number(e.target.value);
+});
+$('btn-cov-camera').addEventListener('click', () => {
+  coverAnim.userCamera = false;
+  placeCoverCamera();
+});
+
+/** Kamera passend zum Fortschritt (Fahrt zur Endansicht beim Hinlegen). */
+function placeCoverCamera() {
+  const lay = coverAnimPhases(coverAnim.t).lay;
+  covCamera.position.lerpVectors(coverAnim.cameraPos, coverAnim.endPos, lay);
+  covControls.target.lerpVectors(coverAnim.cameraTarget, coverAnim.endTarget, lay);
+}
+
+/** Pro Bild aufgerufen, wenn das Register „Umschlag“ sichtbar ist. */
+function frameCoverAnim(dt) {
+  if (!coverAnim.parts.length) return;
+  const COVER_SECONDS = 8;
+  if (Math.abs(coverAnim.target - coverAnim.t) > 1e-6) {
+    coverAnim.t = approach(coverAnim.t, coverAnim.target, (dt * state.speed) / COVER_SECONDS);
+  }
+  applyCoverAnim();
+  updateCoverAnimUi();
+  if (!coverAnim.userCamera) placeCoverCamera();
+  covControls.update();
+  covRenderer.render(covScene, covCamera);
 }
 
 // ---------------------------------------------------------------------------
@@ -1788,6 +2015,7 @@ function frame() {
   updateClipping(pose?.trims);
   updateUi(pose);
   if (activeTab === 'anim') renderer.render(scene, camera);
+  if (activeTab === 'cover') frameCoverAnim(dt);
   first = false;
   requestAnimationFrame(frame);
 }

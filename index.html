@@ -250,7 +250,26 @@
           </p>
         </div>
         <div id="cover-content" hidden>
-          <table class="overview cover-facts"><tbody id="cover-facts"></tbody></table>
+          <div class="cover-top">
+            <table class="overview cover-facts"><tbody id="cover-facts"></tbody></table>
+            <div class="cover-anim">
+              <h3 class="cover-anim-title">Animation: Umschlag falzen und um den Buchblock legen</h3>
+              <div id="cover-viewport" class="cover-viewport" aria-label="3D-Animation des Umschlags"></div>
+              <div class="cover-anim-controls">
+                <button id="btn-cov-reset" title="Umschlag wieder flach legen">⏮</button>
+                <button id="btn-cov-play" class="primary">▶ Abspielen</button>
+                <input id="cov-scrub" type="range" min="0" max="1" step="0.001" value="0" aria-label="Fortschritt" />
+                <button id="btn-cov-camera" title="Kamera zurücksetzen">⟲</button>
+              </div>
+              <ol id="cov-steps" class="cov-steps">
+                <li data-from="0">Umschlag liegt flach, Innenseite oben (gerillt)</li>
+                <li data-from="0.05">Klappen werden eingeschlagen</li>
+                <li data-from="0.27">Buchblock wird mit dem beleimten Rücken auf den Umschlagrücken gesetzt</li>
+                <li data-from="0.5">Vorder- und Rückseite werden hochgeklappt und angelegt</li>
+                <li data-from="0.82">Fertiges Buch wird hingelegt (U1 oben)</li>
+              </ol>
+            </div>
+          </div>
           <figure class="cover-figure">
             <svg id="cover-outside" role="img" aria-label="Umschlag Außenseite"></svg>
             <figcaption>Außenseite (offen, flach): linke Klappe · U4 Rückseite · Rücken · U1 Vorderseite · rechte Klappe</figcaption>
@@ -509,7 +528,11 @@
             </p>
             <p>
               Das Register <strong>Umschlag</strong> zeigt den offenen Umschlag maßstabsgetreu mit Außen- und Innenseite,
-              allen Teilbreiten, Gesamtbreite und Rill-/Falzlinien. Beim Zusammentragen im Endprodukt wird der Umschlag
+              allen Teilbreiten, Gesamtbreite und Rill-/Falzlinien. Die <strong>Animation</strong> rechts oben zeigt
+              maßstabsgetreu (in mm), wie der Umschlag gefalzt und um den Buchblock gelegt wird: Klappen einschlagen,
+              Buchblock mit dem beleimten Rücken aufsetzen, Vorder- und Rückseite hochklappen, fertiges Buch hinlegen. Bedienung:
+              <span class="key">▶ Abspielen</span>, <span class="key">⏮</span> (zurück), Schieberegler, <span class="key">⟲</span>
+              (Kamera); im Bild mit der Maus drehen und zoomen. Beim Zusammentragen im Endprodukt wird der Umschlag
               zuletzt herangeführt: zuerst werden die Klappen eingeschlagen, dann Vorder- und Rückseite um den
               Buchblock gelegt. Beim Blättern wird zuerst der Umschlag aufgeschlagen (U2), am Ende sieht man U3.
             </p>
