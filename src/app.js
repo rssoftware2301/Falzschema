@@ -35,9 +35,12 @@ import { buildCatalogExport } from './catalog-export.js';
 const PAGE_W = 70; // Endformat in Darstellungseinheiten (Verhältnis DIN A, Leseansicht)
 const PAGE_H = 99;
 const REF_WIDTH = 4 * PAGE_W; // Bezugsbreite für die automatische Zoomanpassung
-const MAX_PAGES = 256;
+const MAX_PAGES = 2000; // z. B. 572 Seiten = 286 Einzelblätter im Digitaldruck
+const MAX_GROUP_COUNT = 1000; // Bogen je Bogengruppe
+const CHIP_LIMIT = 12; // mehr Bogen: Auswahlliste statt Schaltflächen
 // Papierstärke in der Darstellung (überzeichnet; bei vielen Blättern dünner)
-const displayThickness = (pages) => (pages <= 32 ? 1.2 : pages <= 64 ? 0.75 : pages <= 128 ? 0.5 : 0.3);
+const displayThickness = (pages) =>
+  pages <= 32 ? 1.2 : pages <= 64 ? 0.75 : pages <= 128 ? 0.5 : pages <= 256 ? 0.3 : pages <= 640 ? 0.2 : 0.1;
 const MM_PER_UNIT = 148 / PAGE_W; // Endformat DIN A5 (148 × 210 mm)
 const CREEP_EXAG = 4; // Verdrängung in der Darstellung 4-fach überhöht (sonst kaum sichtbar)
 const MAX_CREEP_UNITS = 8;
@@ -323,7 +326,8 @@ function disposeLeaves() {
 function buildLeaves() {
   disposeLeaves();
   const total = production.totalLeaves;
-  const scale = total <= 32 ? 6 : total <= 96 ? 4 : 3; // Texturgröße begrenzen bei vielen Blättern
+  // Texturgröße so begrenzen, dass alle Seiten zusammen etwa 64 MB Grafikspeicher brauchen
+  const scale = Math.max(1, Math.min(6, Math.sqrt(64e6 / (PAGE_W * PAGE_H * 4 * 1.34 * 2 * total))));
   production.sheets.forEach((sheet, s) => {
     const sig = sheet.sig;
     const shift = creepUnits(s);
@@ -334,7 +338,9 @@ function buildLeaves() {
       const c = sig.canonical[p.id];
       const foreLocal = new THREE.Vector3(c[0], c[4], c[8]).normalize();
       const clipPlane = new THREE.Plane();
-      const material = (map) => new THREE.MeshStandardMaterial({ map, roughness: 0.92, metalness: 0, clippingPlanes: [clipPlane] });
+      // Beschnitt-Ebene nur bei Sammelheftung nötig (spart bei vielen Blättern Rechenzeit)
+      const clipping = production.binding === 'saddle' ? [clipPlane] : [];
+      const material = (map) => new THREE.MeshStandardMaterial({ map, roughness: 0.92, metalness: 0, clippingPlanes: clipping });
       const tex = (face, side) =>
         pageTexture({ page: face.page, rotation: pageRotation(face.up, side), side, shift, label, cellW: sig.cellW, cellH: sig.cellH, scale });
 
@@ -347,7 +353,7 @@ function buildLeaves() {
       const back = new THREE.Mesh(plane, material(tex(p.back, 'back')));
       back.rotation.y = Math.PI;
       back.position.z = -FACE_OFFSET;
-      const outline = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: sheetColor(s), clippingPlanes: [clipPlane] }));
+      const outline = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: sheetColor(s), clippingPlanes: clipping }));
       // Papierstreifen am Bund: füllt bei der Verdrängung (Blatt nach außen versetzt) die Lücke zum Rücken
       const strip = new THREE.Mesh(spineStripGeometry, spineStripMaterial);
       strip.visible = false;
@@ -483,8 +489,12 @@ function bookPose(a, book) {
   const openTurn = saddle ? 1 - ease(clamp01(f / 0.4)) : 0;
   const fasten = saddle ? ease(clamp01((f - 0.4) / 0.2)) : ease(clamp01(f / 0.6));
   const trim = saddle ? ease(clamp01((f - 0.6) / 0.4)) : 0;
-  // Bereitstellung der gefalzten Bogen rechts neben dem Produkt (8 je Reihe)
-  const slot = (i) => [2 * PAGE_W + 40 + (i % 8) * (PAGE_W + 14), -Math.floor(i / 8) * (PAGE_H + 24)];
+  // Bereitstellung der gefalzten Bogen rechts neben dem Produkt: bis 16 Bogen in Reihen zu 8,
+  // bei mehr Bogen als Stapel (der nächste Bogen liegt oben)
+  const slot = (i) =>
+    n <= 16
+      ? [2 * PAGE_W + 40 + (i % 8) * (PAGE_W + 14), -Math.floor(i / 8) * (PAGE_H + 24), 0]
+      : [2 * PAGE_W + 40, 0, -pileDepth[i]];
 
   const matrices = [];
   const trims = [];
@@ -497,7 +507,7 @@ function bookPose(a, book) {
     const base = sig.canonical[leaf.panel];
     const dzBook = bookLeafMatrix(production, leaf)[14] - base[14];
     const front = leaf.layer < sig.leaves / 2;
-    const [sx, sy] = slot(i);
+    const [sx, sy, sz] = slot(i);
     let m;
     if (saddle) {
       // Verdrängung: innere Bogen stehen nach dem Schließen am Vorderschnitt über
@@ -514,7 +524,7 @@ function bookPose(a, book) {
         m = multiply(translation(0, 0, dzBook * qOpen), local);
         if (front) m = turnCanonical(m, qOpen, BOOK_AXIS_Z);
         const dip = -8 * Math.sin(Math.PI * qMove);
-        m = multiply(translation(sx * (1 - qMove), sy * (1 - qMove), dip), m);
+        m = multiply(translation(sx * (1 - qMove), sy * (1 - qMove), sz * (1 - qMove) + dip), m);
       }
     } else if (q >= 1) {
       m = multiply(translation(0, 0, dzBook), base);
@@ -522,13 +532,24 @@ function bookPose(a, book) {
       // Klebebindung: Bogen wird angehoben und auf den Stapel gelegt
       const e = ease(q);
       const lift = (20 + production.thickness * production.totalLeaves) * Math.sin(Math.PI * q);
-      m = multiply(translation(sx * (1 - e), sy * (1 - e), dzBook * e + lift), base);
+      m = multiply(translation(sx * (1 - e), sy * (1 - e), sz * (1 - e) + dzBook * e + lift), base);
     }
     if (book > 0) m = turnCanonical(m, ease(clamp01(book - leaf.g)), BOOK_AXIS_Z);
     matrices[leaf.g] = m;
     trims[leaf.g] = saddle ? creepUnits(s) * trim : 0;
   }
   return { matrices, trims, protrusions, fasten, f };
+}
+
+// Stapeltiefe der bereitliegenden Bogen (Index = Reihenfolge des Zusammentragens)
+let pileDepth = [];
+function computePile() {
+  pileDepth = [];
+  let depth = 0;
+  for (let i = 0; i < production.n; i++) {
+    pileDepth[i] = depth;
+    depth += (production.sheets[production.n - 1 - i].sig.leaves + 1) * production.thickness;
+  }
 }
 
 function applyMatrices(objects, matrices) {
@@ -660,14 +681,14 @@ function renderGroups() {
       .join('');
     row.innerHTML = `
       <div class="group-line">
-        <input type="number" class="g-count" min="1" max="64" value="${g.count}" aria-label="Anzahl Bogen" />
+        <input type="number" class="g-count" min="1" max="${MAX_GROUP_COUNT}" value="${g.count}" aria-label="Anzahl Bogen" />
         <span>×</span>
         <select class="g-pages" aria-label="Seiten je Bogen">${pageOptions}</select>
         <button class="g-del" title="Bogengruppe entfernen" aria-label="Bogengruppe entfernen">✕</button>
       </div>
       <select class="g-scheme" aria-label="Falzschema" title="${escapeHtml(describeEntry(entry).longText)}">${schemeOptions}</select>`;
     row.querySelector('.g-count').addEventListener('change', (e) => {
-      g.count = Math.max(1, Math.min(64, Math.round(Number(e.target.value)) || 1));
+      g.count = Math.max(1, Math.min(MAX_GROUP_COUNT, Math.round(Number(e.target.value)) || 1));
       e.target.value = g.count;
       tryApply();
     });
@@ -735,6 +756,7 @@ function applyProduction() {
   view.sheet = Math.min(view.sheet, production.n - 1);
   state.t = state.target = Math.min(state.t, foldsOf());
   state.reading = false;
+  computePile();
   buildLeaves();
   renderViewChips();
   renderOverview();
@@ -778,13 +800,33 @@ function chipButton(s, active, onClick) {
   return b;
 }
 
+/** Auswahlliste der Bogen (bei vielen Bogen statt einzelner Schaltflächen). */
+function sheetSelect(selected, onChange) {
+  const sel = document.createElement('select');
+  sel.className = 'sheet-select';
+  sel.setAttribute('aria-label', 'Bogen wählen');
+  sel.innerHTML =
+    (selected === null ? '<option value="" selected>Bogen wählen …</option>' : '') +
+    production.sheets
+      .map((sheet, s) => `<option value="${s}"${s === selected ? ' selected' : ''}>Bogen ${s + 1} · ${sheet.scheme} · S. ${sheet.pageRanges}</option>`)
+      .join('');
+  sel.addEventListener('change', () => sel.value !== '' && onChange(Number(sel.value)));
+  return sel;
+}
+
 function renderViewChips() {
+  const many = production.n > CHIP_LIMIT;
   const schemaChips = $('schema-chips');
-  schemaChips.replaceChildren(
-    ...production.sheets.map((_, s) => chipButton(s, view.sheet === s, () => selectView(view.mode === 'book' ? 'book' : 'sheet', s))),
-  );
   const chips = $('view-chips');
-  chips.replaceChildren(...production.sheets.map((_, s) => chipButton(s, view.mode === 'sheet' && view.sheet === s, () => selectView('sheet', s))));
+  if (many) {
+    schemaChips.replaceChildren(sheetSelect(view.sheet, (s) => selectView(view.mode === 'book' ? 'book' : 'sheet', s)));
+    chips.replaceChildren(sheetSelect(view.mode === 'sheet' ? view.sheet : null, (s) => selectView('sheet', s)));
+  } else {
+    schemaChips.replaceChildren(
+      ...production.sheets.map((_, s) => chipButton(s, view.sheet === s, () => selectView(view.mode === 'book' ? 'book' : 'sheet', s))),
+    );
+    chips.replaceChildren(...production.sheets.map((_, s) => chipButton(s, view.mode === 'sheet' && view.sheet === s, () => selectView('sheet', s))));
+  }
   const b = document.createElement('button');
   b.className = 'product';
   b.textContent = production.n > 1 ? 'Endprodukt (zusammentragen)' : 'Endprodukt';
@@ -1310,7 +1352,8 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const FOLD_SECONDS = 1.8; // Dauer eines Falzes bei normaler Geschwindigkeit
   const LEAF_SECONDS = 0.9; // Dauer eines Umblätterns
-  const SHEET_SECONDS = 2.2; // Dauer des Zusammentragens eines Bogens
+  // Dauer des Zusammentragens eines Bogens; bei vielen Bogen kürzer (gesamt höchstens ca. 30 s)
+  const SHEET_SECONDS = Math.min(2.2, 30 / (production.n + 1));
 
   // Soll wieder aufgefalzt / auseinandergenommen werden, zuerst zuklappen
   if (view.mode === 'sheet' && state.target < state.t - 1e-9 && state.book > 1e-6) state.bookTarget = 0;

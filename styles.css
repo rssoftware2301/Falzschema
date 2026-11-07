@@ -936,3 +936,11 @@ table.overview .dot {
     white-space: nowrap;
   }
 }
+.sheet-select {
+  width: 100%;
+  min-width: 0;
+  font-size: 0.88rem;
+}
+.chips .sheet-select {
+  flex: 1 1 100%;
+}

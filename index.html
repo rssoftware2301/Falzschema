@@ -39,7 +39,7 @@
           <h2>Produkt <button class="help-btn" data-topic="product" title="Hilfe: Produkt">?</button></h2>
           <label class="field">
             <span>Seitenumfang</span>
-            <span class="with-unit"><input id="page-total" type="number" min="4" max="256" step="4" value="16" /> Seiten</span>
+            <span class="with-unit"><input id="page-total" type="number" min="4" max="2000" step="4" value="16" /> Seiten</span>
           </label>
           <label class="field">
             <span>Bindeart</span>
@@ -273,7 +273,7 @@
             <dl>
               <dt>Seitenumfang</dt>
               <dd>
-                Gesamtzahl der Seiten des Endprodukts (bis 256). Bei <strong>Sammelheftung</strong> muss die Zahl ein
+                Gesamtzahl der Seiten des Endprodukts (bis 2000). Bei <strong>Sammelheftung</strong> muss die Zahl ein
                 Vielfaches von 4 sein, weil nur Doppelblätter geheftet werden können. Bei <strong>Klebebindung</strong>
                 genügt ein Vielfaches von 2, denn hier können auch Einzelblätter (Schema F2-1, 2 Seiten) verklebt werden.
                 Passt die bisherige Bogenaufteilung nach einer Änderung nicht mehr, wird automatisch eine neue vorgeschlagen.
@@ -304,7 +304,7 @@
             </p>
             <ul>
               <li>Die <strong>Reihenfolge</strong> der Gruppen ist die Reihenfolge im Produkt: Bogen 1 liegt vorne (Klebebindung) bzw. außen (Sammelheftung).</li>
-              <li><span class="key">+ Bogengruppe</span> fügt eine Zeile hinzu, <span class="key">✕</span> entfernt sie.</li>
+              <li><span class="key">+ Bogengruppe</span> fügt eine Zeile hinzu, <span class="key">✕</span> entfernt sie. Je Gruppe sind bis zu 1000 Bogen möglich, z. B. 286 × F2-1 für 572 Seiten als Einzelblätter im Digitaldruck.</li>
               <li><span class="key">Vorschlag</span> teilt den Seitenumfang in möglichst große Bogen auf (16, 8, 4 Seiten; bei Klebebindung auch Einzelblätter mit 2 Seiten).</li>
               <li>Beim Ändern der Seitenzahl je Bogen wird ein passendes Standardschema gewählt; die Auswahlliste zeigt alle Schemata mit dieser Seitenzahl samt Falzart und Falzfolge.</li>
               <li>Unter den Gruppen steht die <strong>Summe</strong>. Grün mit ✓ heißt: übernommen. Rot zeigt, was nicht passt – etwa eine falsche Summe oder ein Schema, das sich nicht für Sammelheftung eignet (gekennzeichnet mit „nicht für Sammelheftung“). Bis zur Korrektur bleibt die letzte gültige Darstellung stehen.</li>
@@ -314,7 +314,7 @@
           <section id="help-view">
             <h3>Ansicht &amp; 3D-Bild</h3>
             <ul>
-              <li>Die farbigen Schalter <span class="key">Bogen 1</span>, <span class="key">Bogen 2</span> … zeigen einen einzelnen Bogen (flach und zum Falzen). Die Farbe kennzeichnet den Bogen auch an den Blattkanten im Endprodukt.</li>
+              <li>Die farbigen Schalter <span class="key">Bogen 1</span>, <span class="key">Bogen 2</span> … zeigen einen einzelnen Bogen (flach und zum Falzen); bei mehr als 12 Bogen steht stattdessen eine Auswahlliste. Die Farbe kennzeichnet den Bogen auch an den Blattkanten im Endprodukt.</li>
               <li><span class="key">Endprodukt</span> zeigt das Zusammentragen aller Bogen und das fertige Exemplar.</li>
               <li><span class="key">Vorderseite</span> / <span class="key">Rückseite</span> wenden das Objekt. Die Rückseite wird wie beim Umschlagen gezeigt (um die senkrechte Achse gewendet).</li>
               <li><strong>Geschwindigkeit</strong> gilt für alle Animationen.</li>

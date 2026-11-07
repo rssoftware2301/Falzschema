@@ -42,7 +42,7 @@ npm run build
   Bedienungsanleitung beim Thema des aktuellen Bereichs (kontextsensitiv:
   Register, Ansicht, fokussiertes Eingabefeld); die „?“-Schalter an den
   Abschnitten führen direkt zum jeweiligen Thema.
-- **Produkt**: Seitenumfang frei eingeben (bis 256 Seiten; Sammelheftung:
+- **Produkt**: Seitenumfang frei eingeben (bis 2000 Seiten, bis 1000 Bogen je Gruppe; Sammelheftung:
   Vielfaches von 4, Klebebindung: Vielfaches von 2, da auch Einzelblätter
   F2-1 verklebt werden können),
   Bindeart **Sammelheftung** oder **Klebebindung**, bei Sammelheftung die

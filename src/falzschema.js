@@ -507,7 +507,7 @@ export function suggestGroups(pages, binding = 'saddle') {
  * Klebebindung erlaubt auch Einzelblätter (Vielfaches von 2).
  */
 export const pageStep = (binding) => (binding === 'perfect' ? 2 : 4);
-export function validPageTotal(pages, binding, max = 256) {
+export function validPageTotal(pages, binding, max = 2000) {
   const step = pageStep(binding);
   return Number.isInteger(pages) && pages >= step && pages <= max && pages % step === 0;
 }

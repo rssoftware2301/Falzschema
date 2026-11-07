@@ -204,7 +204,8 @@ test('Seitenumfang: Sammelheftung Vielfaches von 4, Klebebindung Vielfaches von 
   assert.ok(validPageTotal(78, 'perfect'));
   assert.ok(validPageTotal(2, 'perfect'));
   assert.ok(!validPageTotal(77, 'perfect'));
-  assert.ok(!validPageTotal(258, 'perfect'));
+  assert.ok(!validPageTotal(2002, 'perfect'));
+  assert.ok(validPageTotal(572, 'perfect'));
 });
 
 test('Klebebindung mit Einzelblättern (F2-1)', () => {
@@ -227,4 +228,13 @@ test('Klebebindung mit Einzelblättern (F2-1)', () => {
     computeProduction([{ count: 1, scheme: 'F2-1' }], { binding: 'saddle' }).errors[0],
     /Sammelheftung/,
   );
+});
+
+test('572 Seiten als 286 Einzelblätter (F2-1) in Klebebindung', () => {
+  assert.ok(validPageTotal(572, 'perfect'));
+  const prod = computeProduction([{ count: 286, scheme: 'F2-1' }], { binding: 'perfect', pages: 572 });
+  assert.deepEqual(prod.errors, []);
+  assert.equal(prod.n, 286);
+  assert.equal(prod.totalLeaves, 286);
+  assert.equal(prod.sheets[285].pageRanges, '571–572');
 });
